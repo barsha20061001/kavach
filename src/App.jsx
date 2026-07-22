@@ -11,6 +11,13 @@ import Predictions from "./pages/Predictions";
 import Reports from "./pages/Reports";
 import Resources from "./pages/Resources";
 import Settings from "./pages/Settings";
+import DistrictAnalysis from "./pages/DistrictAnalysis";
+import RepeatOffenders from "./pages/RepeatOffenders";
+
+
+import Alerts from "./pages/Alerts";
+
+
 
 export default function App() {
   return (
@@ -48,10 +55,17 @@ export default function App() {
           }
         />
 
+         <Route path="/repeat-offenders" element={<RepeatOffenders />} />
+
         <Route
           path="predictions"
           element={<Predictions />}
         />
+
+         <Route
+            path="/district-analysis"
+            element={<DistrictAnalysis />}
+          />
 
         <Route
           path="cases"
@@ -86,6 +100,28 @@ export default function App() {
         <Route
           path="settings"
           element={<Settings />}
+        />
+
+        <Route
+          path="/criminal-network"
+          element={<CriminalNetwork />}
+        />
+
+
+
+        <Route
+            path="/alerts"
+            element={<Alerts />}
+        />
+
+        <Route
+            path="/reports"
+            element={<Reports />}
+        />
+
+        <Route
+            path="/audit-logs"
+            element={<AuditLogs />}
         />
 
         <Route
