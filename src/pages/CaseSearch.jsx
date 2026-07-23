@@ -1,10 +1,19 @@
 import { Search } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import PageHeader from "../components/common/PageHeader";
 import { crimeCases } from "../data/crimeData";
+import { useSearchParams } from "react-router-dom";
 
 function CaseSearch() {
-  const [query, setQuery] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  const [query, setQuery] = useState(
+  searchParams.get("q") || ""
+   );
+
+  useEffect(() => {
+  setQuery(searchParams.get("q") || "");
+  }, [searchParams]); 
   const [district, setDistrict] = useState("All");
   const [status, setStatus] = useState("All");
 
@@ -46,10 +55,20 @@ function CaseSearch() {
         <div className="grid gap-3 rounded-2xl border border-slate-700 bg-[#071225] p-4 md:grid-cols-[1fr_220px_220px]">
           <input
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search Crime No, Case No, accused, offence..."
-            className="rounded-xl border border-slate-700 bg-[#061124] px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
-          />
+            onChange={(event) => {
+               const value = event.target.value;
+
+               setQuery(value);
+
+               if (value.trim()) {
+                   setSearchParams({ q: value });
+               } else {
+                   setSearchParams({});
+               }
+             }}
+             placeholder="Search Crime No, Case No, accused, offence..."
+             className="rounded-xl border border-slate-700 bg-[#061124] px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
+           />
 
           <select
             value={district}
