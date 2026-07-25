@@ -11,7 +11,7 @@ import {
   TrendingUp,
 } from "lucide-react";
 
-import { askCrimeAssistant } from "../services/aiService";
+import { api } from "../services/api";
 
 const presets = [
   {
@@ -36,14 +36,29 @@ const presets = [
   },
 ];
 
+function createId() {
+  if (typeof crypto !== "undefined" && crypto.randomUUID) {
+    return crypto.randomUUID();
+  }
+
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getCurrentTime() {
+  return new Date().toLocaleTimeString([], {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
 function AICrimeAssistant() {
   const [messages, setMessages] = useState([
     {
-      id: crypto.randomUUID(),
+      id: createId(),
       role: "assistant",
       content:
         "Hello! I am Kavach AI, your crime intelligence and investigation assistant.\n\nI can help you analyse FIR records, identify crime patterns, inspect repeat offenders and generate district-level insights.\n\nWhat would you like to investigate today?",
-      time: "04:25 pm",
+      time: getCurrentTime(),
     },
   ]);
 
@@ -59,22 +74,18 @@ function AICrimeAssistant() {
     });
   }, [messages, isLoading]);
 
-  const getCurrentTime = () =>
-    new Date().toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-
   const handleSend = async (selectedQuestion) => {
     const finalQuestion =
       typeof selectedQuestion === "string"
         ? selectedQuestion.trim()
         : question.trim();
 
-    if (!finalQuestion || isLoading) return;
+    if (!finalQuestion || isLoading) {
+      return;
+    }
 
     const userMessage = {
-      id: crypto.randomUUID(),
+      id: createId(),
       role: "user",
       content: finalQuestion,
       time: getCurrentTime(),
@@ -85,32 +96,33 @@ function AICrimeAssistant() {
     setIsLoading(true);
 
     try {
-      const result = await askCrimeAssistant(finalQuestion);
+      const result = await api.assistant(finalQuestion);
 
       const assistantMessage = {
-        id: crypto.randomUUID(),
+        id: createId(),
         role: "assistant",
-        content: result.summary,
-        sql: result.sql,
-        rows: result.rows,
-        count: result.count,
+        content:
+          result?.answer ||
+          "I could not find a matching result in the available FIR dataset.",
+        note: result?.note || "",
         time: getCurrentTime(),
       };
 
       setMessages((current) => [...current, assistantMessage]);
     } catch (error) {
-      console.error(error);
+      console.error("Kavach AI request failed:", error);
 
-      setMessages((current) => [
-        ...current,
-        {
-          id: crypto.randomUUID(),
-          role: "assistant",
-          content:
-            "I could not process that request. Please try another crime intelligence query.",
-          time: getCurrentTime(),
-        },
-      ]);
+      const errorMessage = {
+        id: createId(),
+        role: "assistant",
+        content:
+          error?.message ||
+          "I could not process that request. Please check that the backend is running and try again.",
+        isError: true,
+        time: getCurrentTime(),
+      };
+
+      setMessages((current) => [...current, errorMessage]);
     } finally {
       setIsLoading(false);
     }
@@ -128,7 +140,10 @@ function AICrimeAssistant() {
         <div className="flex flex-col justify-between gap-4 xl:flex-row xl:items-center">
           <div>
             <div className="flex flex-wrap items-center gap-3">
-              <Sparkles className="text-blue-400" size={24} />
+              <Sparkles
+                className="text-blue-400"
+                size={24}
+              />
 
               <h1 className="text-xl font-bold text-white md:text-2xl">
                 Kavach AI Copilot
@@ -154,7 +169,10 @@ function AICrimeAssistant() {
           <aside className="hidden min-h-0 flex-col overflow-hidden rounded-2xl border border-slate-700 bg-[#071225] xl:flex">
             <div className="shrink-0 border-b border-slate-800 px-5 py-5">
               <div className="flex items-center gap-2">
-                <Sparkles size={17} className="text-yellow-300" />
+                <Sparkles
+                  size={17}
+                  className="text-yellow-300"
+                />
 
                 <h2 className="text-sm font-bold uppercase tracking-wide text-white">
                   Investigation Presets
@@ -198,7 +216,9 @@ function AICrimeAssistant() {
                     <span className="font-semibold text-blue-300">
                       Kavach AI Intelligence Preview
                     </span>
+
                     <br />
+
                     Results are generated from available FIR data and must be
                     verified with authorised police records.
                   </p>
@@ -253,12 +273,22 @@ function AICrimeAssistant() {
                           className={`rounded-2xl border px-5 py-4 ${
                             isUser
                               ? "rounded-tr-md border-blue-500 bg-blue-600 text-white"
-                              : "rounded-tl-md border-slate-600 bg-[#1a2940] text-slate-100"
+                              : message.isError
+                                ? "rounded-tl-md border-red-500/40 bg-red-500/10 text-red-100"
+                                : "rounded-tl-md border-slate-600 bg-[#1a2940] text-slate-100"
                           }`}
                         >
                           <p className="whitespace-pre-wrap break-words text-sm leading-7">
                             {message.content}
                           </p>
+
+                          {message.note && (
+                            <div className="mt-4 border-t border-slate-600/70 pt-3">
+                              <p className="text-xs leading-5 text-slate-400">
+                                {message.note}
+                              </p>
+                            </div>
+                          )}
 
                           {message.sql && (
                             <details className="mt-4">
@@ -285,7 +315,7 @@ function AICrimeAssistant() {
                                         >
                                           {column}
                                         </th>
-                                      )
+                                      ),
                                     )}
                                   </tr>
                                 </thead>
@@ -293,7 +323,7 @@ function AICrimeAssistant() {
                                 <tbody>
                                   {message.rows.map((row, rowIndex) => (
                                     <tr
-                                      key={rowIndex}
+                                      key={`${message.id}-${rowIndex}`}
                                       className="border-t border-slate-700"
                                     >
                                       {Object.keys(message.rows[0]).map(
@@ -304,7 +334,7 @@ function AICrimeAssistant() {
                                           >
                                             {row[column] ?? "—"}
                                           </td>
-                                        )
+                                        ),
                                       )}
                                     </tr>
                                   ))}
@@ -339,7 +369,9 @@ function AICrimeAssistant() {
 
                       <div className="flex items-center gap-2 rounded-2xl rounded-tl-md border border-slate-600 bg-[#1a2940] px-5 py-4">
                         <span className="h-2 w-2 animate-bounce rounded-full bg-blue-400" />
+
                         <span className="h-2 w-2 animate-bounce rounded-full bg-blue-400 [animation-delay:150ms]" />
+
                         <span className="h-2 w-2 animate-bounce rounded-full bg-blue-400 [animation-delay:300ms]" />
 
                         <span className="ml-2 text-sm text-slate-300">

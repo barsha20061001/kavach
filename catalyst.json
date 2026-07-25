@@ -1,0 +1,15 @@
+{
+  "functions": {
+    "targets": [
+      "kavach_api"
+    ],
+    "ignore": [],
+    "source": "functions"
+  },
+  "slate": [
+    {
+      "name": "react-vite",
+      "source": "D:\\kavach"
+    }
+  ]
+}

@@ -4,6 +4,7 @@ import {
   TrendingDown,
   TrendingUp,
 } from "lucide-react";
+
 import {
   Bar,
   BarChart,
@@ -16,9 +17,135 @@ import {
 } from "recharts";
 
 import PageHeader from "../components/common/PageHeader";
-import { predictions } from "../data/crimeData";
+import { useApi } from "../hooks/useApi";
+import { api } from "../services/api";
 
 function PredictiveIntelligence() {
+  const {
+    data,
+    loading,
+    error,
+  } = useApi(() => api.predictive(), []);
+
+  const predictions = (
+    data?.predictions ??
+    data?.forecast ??
+    data?.districtForecast ??
+    []
+  ).map((prediction, index) => {
+    const previousCases = Number(
+      prediction.previousCases ??
+        prediction.currentCases ??
+        prediction.historicalCases ??
+        prediction.actualCases ??
+        0,
+    );
+
+    const predictedCases = Number(
+      prediction.predictedCases ??
+        prediction.forecastCases ??
+        prediction.expectedCases ??
+        prediction.prediction ??
+        0,
+    );
+
+    const calculatedChange = previousCases
+      ? ((predictedCases - previousCases) / previousCases) * 100
+      : 0;
+
+    const percentageChange = Number(
+      prediction.percentageChange ??
+        prediction.changePercentage ??
+        calculatedChange,
+    );
+
+    const riskScore = Number(
+      prediction.riskScore ??
+        prediction.risk ??
+        prediction.score ??
+        0,
+    );
+
+    const confidence = Number(
+      prediction.confidence ??
+        prediction.confidenceScore ??
+        data?.modelConfidence ??
+        0,
+    );
+
+    return {
+      id:
+        prediction.id ??
+        prediction.districtId ??
+        `prediction-${index}`,
+
+      district:
+        prediction.district ??
+        prediction.districtName ??
+        "Unknown district",
+
+      category:
+        prediction.category ??
+        prediction.crimeCategory ??
+        prediction.crimeHeadName ??
+        "All crime categories",
+
+      previousCases,
+      predictedCases,
+      riskScore,
+      confidence,
+      percentageChange,
+
+      trend:
+        prediction.trend ??
+        (predictedCases >= previousCases
+          ? "Increasing"
+          : "Decreasing"),
+    };
+  });
+
+  const modelConfidence = Number(
+    data?.modelConfidence ??
+      data?.confidence ??
+      (predictions.length
+        ? predictions.reduce(
+            (total, prediction) =>
+              total + prediction.confidence,
+            0,
+          ) / predictions.length
+        : 0),
+  );
+
+  const highRiskDistricts = predictions.filter(
+    (prediction) => prediction.riskScore > 70,
+  ).length;
+
+  const totalPreviousCases = predictions.reduce(
+    (total, prediction) =>
+      total + prediction.previousCases,
+    0,
+  );
+
+  const totalPredictedCases = predictions.reduce(
+    (total, prediction) =>
+      total + prediction.predictedCases,
+    0,
+  );
+
+  const expectedCaseIncrease = totalPreviousCases
+    ? ((totalPredictedCases - totalPreviousCases) /
+        totalPreviousCases) *
+      100
+    : 0;
+
+  const highestRiskPrediction =
+    predictions.length > 0
+      ? [...predictions].sort(
+          (first, second) =>
+            second.riskScore - first.riskScore,
+        )[0]
+      : null;
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#020817]">
       <PageHeader
@@ -27,29 +154,56 @@ function PredictiveIntelligence() {
         description="Forecast crime patterns and identify emerging operational risks"
         action={
           <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-xs font-semibold text-blue-300">
-            Model confidence: 84%
+            Model confidence:{" "}
+            {loading
+              ? "..."
+              : `${modelConfidence.toFixed(0)}%`}
           </span>
         }
       />
 
       <main className="min-h-0 flex-1 overflow-y-auto p-5">
+        {error && (
+          <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {error}
+          </div>
+        )}
+
         <div className="grid gap-4 md:grid-cols-3">
           <Metric
             title="High-risk districts"
-            value="2"
+            value={
+              loading
+                ? "..."
+                : highRiskDistricts.toLocaleString()
+            }
             description="Risk score above 70"
           />
 
           <Metric
             title="Expected case increase"
-            value="+12.8%"
+            value={
+              loading
+                ? "..."
+                : `${expectedCaseIncrease >= 0 ? "+" : ""}${expectedCaseIncrease.toFixed(1)}%`
+            }
             description="Next 30-day period"
           />
 
           <Metric
             title="Highest-risk category"
-            value="Cyber Crime"
-            description="Bengaluru Urban"
+            value={
+              loading
+                ? "..."
+                : highestRiskPrediction?.category ??
+                  "No data"
+            }
+            description={
+              loading
+                ? "Loading district data"
+                : highestRiskPrediction?.district ??
+                  "No district available"
+            }
           />
         </div>
 
@@ -66,49 +220,86 @@ function PredictiveIntelligence() {
             </div>
           </div>
 
-          <ResponsiveContainer width="100%" height={340}>
-            <BarChart data={predictions}>
-              <CartesianGrid strokeDasharray="3 3" stroke="#253247" />
-              <XAxis dataKey="district" stroke="#94a3b8" />
-              <YAxis stroke="#94a3b8" />
-              <Tooltip />
+          {loading ? (
+            <div className="flex h-[340px] items-center justify-center">
+              <p className="text-sm text-slate-400">
+                Loading district risk forecast...
+              </p>
+            </div>
+          ) : predictions.length === 0 ? (
+            <div className="flex h-[340px] items-center justify-center">
+              <p className="text-sm text-slate-400">
+                No predictive data available.
+              </p>
+            </div>
+          ) : (
+            <ResponsiveContainer width="100%" height={340}>
+              <BarChart data={predictions}>
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="#253247"
+                />
 
-              <Bar
-                dataKey="previousCases"
-                fill="#475569"
-                name="Previous cases"
-                radius={[5, 5, 0, 0]}
-              />
+                <XAxis
+                  dataKey="district"
+                  stroke="#94a3b8"
+                />
 
-              <Bar
-                dataKey="predictedCases"
-                name="Predicted cases"
-                radius={[5, 5, 0, 0]}
-              >
-                {predictions.map((prediction) => (
-                  <Cell
-                    key={prediction.district}
-                    fill={
-                      prediction.riskScore >= 75
-                        ? "#ef4444"
-                        : prediction.riskScore >= 55
-                          ? "#f59e0b"
-                          : "#3b82f6"
-                    }
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
+                <YAxis stroke="#94a3b8" />
+
+                <Tooltip />
+
+                <Bar
+                  dataKey="previousCases"
+                  fill="#475569"
+                  name="Previous cases"
+                  radius={[5, 5, 0, 0]}
+                />
+
+                <Bar
+                  dataKey="predictedCases"
+                  name="Predicted cases"
+                  radius={[5, 5, 0, 0]}
+                >
+                  {predictions.map((prediction) => (
+                    <Cell
+                      key={prediction.id}
+                      fill={
+                        prediction.riskScore >= 75
+                          ? "#ef4444"
+                          : prediction.riskScore >= 55
+                            ? "#f59e0b"
+                            : "#3b82f6"
+                      }
+                    />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          )}
         </section>
 
         <div className="mt-5 grid gap-4 lg:grid-cols-2">
-          {predictions.map((prediction) => (
-            <PredictionCard
-              key={prediction.district}
-              prediction={prediction}
-            />
-          ))}
+          {loading ? (
+            <div className="col-span-full flex min-h-[220px] items-center justify-center">
+              <p className="text-sm text-slate-400">
+                Loading prediction details...
+              </p>
+            </div>
+          ) : predictions.length === 0 ? (
+            <div className="col-span-full flex min-h-[220px] items-center justify-center">
+              <p className="text-sm text-slate-400">
+                No district predictions are available.
+              </p>
+            </div>
+          ) : (
+            predictions.map((prediction) => (
+              <PredictionCard
+                key={prediction.id}
+                prediction={prediction}
+              />
+            ))
+          )}
         </div>
 
         <div className="mt-5 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5">
@@ -139,15 +330,25 @@ function PredictiveIntelligence() {
 function Metric({ title, value, description }) {
   return (
     <div className="rounded-2xl border border-slate-700 bg-[#071225] p-5">
-      <p className="text-sm text-slate-400">{title}</p>
-      <p className="mt-2 text-2xl font-bold text-white">{value}</p>
-      <p className="mt-2 text-xs text-slate-500">{description}</p>
+      <p className="text-sm text-slate-400">
+        {title}
+      </p>
+
+      <p className="mt-2 text-2xl font-bold text-white">
+        {value}
+      </p>
+
+      <p className="mt-2 text-xs text-slate-500">
+        {description}
+      </p>
     </div>
   );
 }
 
 function PredictionCard({ prediction }) {
-  const isIncreasing = prediction.trend === "Increasing";
+  const isIncreasing =
+    prediction.trend.toLowerCase() === "increasing" ||
+    prediction.predictedCases > prediction.previousCases;
 
   const riskClass =
     prediction.riskScore >= 75
@@ -172,32 +373,36 @@ function PredictionCard({ prediction }) {
         <span
           className={`rounded-full px-3 py-1 text-xs font-semibold ${riskClass}`}
         >
-          Risk {prediction.riskScore}
+          Risk {prediction.riskScore.toFixed(0)}
         </span>
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-3">
         <DataBox
           label="Predicted cases"
-          value={prediction.predictedCases}
+          value={prediction.predictedCases.toLocaleString()}
         />
 
         <DataBox
           label="Previous cases"
-          value={prediction.previousCases}
+          value={prediction.previousCases.toLocaleString()}
         />
 
         <DataBox
           label="Confidence"
-          value={`${prediction.confidence}%`}
+          value={`${prediction.confidence.toFixed(0)}%`}
         />
 
         <div className="rounded-xl bg-[#0b1930] p-3">
-          <p className="text-xs text-slate-500">Trend</p>
+          <p className="text-xs text-slate-500">
+            Trend
+          </p>
 
           <div
             className={`mt-1 flex items-center gap-2 text-sm font-semibold ${
-              isIncreasing ? "text-red-400" : "text-emerald-400"
+              isIncreasing
+                ? "text-red-400"
+                : "text-emerald-400"
             }`}
           >
             {isIncreasing ? (
@@ -217,8 +422,13 @@ function PredictionCard({ prediction }) {
 function DataBox({ label, value }) {
   return (
     <div className="rounded-xl bg-[#0b1930] p-3">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className="mt-1 text-sm font-semibold text-white">{value}</p>
+      <p className="text-xs text-slate-500">
+        {label}
+      </p>
+
+      <p className="mt-1 text-sm font-semibold text-white">
+        {value}
+      </p>
     </div>
   );
 }

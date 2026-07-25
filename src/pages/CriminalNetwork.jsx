@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
 import {
   Network,
@@ -8,16 +8,147 @@ import {
 } from "lucide-react";
 
 import PageHeader from "../components/common/PageHeader";
-import {
-  networkEdges,
-  networkNodes,
-} from "../data/crimeData";
-
-const elements = [...networkNodes, ...networkEdges];
+import { useApi } from "../hooks/useApi";
+import { api } from "../services/api";
 
 function CriminalNetwork() {
   const [selectedNode, setSelectedNode] = useState(null);
   const [search, setSearch] = useState("");
+
+  const {
+    data: networkData,
+    loading,
+    error,
+  } = useApi(() => api.network(), []);
+
+  const networkNodes = useMemo(() => {
+    const nodes = networkData?.nodes ?? [];
+
+    return nodes.map((node, index) => {
+      const source = node?.data ?? node;
+
+      return {
+        data: {
+          ...source,
+          id: String(
+            source.id ??
+              source.nodeId ??
+              `${source.type ?? "node"}-${index}`,
+          ),
+          label:
+            source.label ??
+            source.name ??
+            source.accusedName ??
+            source.crimeNo ??
+            source.districtName ??
+            "Unknown entity",
+          type: source.type ?? "unknown",
+          risk: source.risk ?? source.riskLevel ?? "",
+        },
+      };
+    });
+  }, [networkData]);
+
+  const networkEdges = useMemo(() => {
+    const edges = networkData?.edges ?? [];
+
+    return edges
+      .map((edge, index) => {
+        const source = edge?.data ?? edge;
+
+        const sourceId =
+          source.source ??
+          source.sourceId ??
+          source.from;
+
+        const targetId =
+          source.target ??
+          source.targetId ??
+          source.to;
+
+        if (sourceId == null || targetId == null) {
+          return null;
+        }
+
+        return {
+          data: {
+            ...source,
+            id: String(
+              source.id ??
+                source.edgeId ??
+                `edge-${index}`,
+            ),
+            source: String(sourceId),
+            target: String(targetId),
+            relation:
+              source.relation ??
+              source.label ??
+              source.relationship ??
+              "linked",
+          },
+        };
+      })
+      .filter(Boolean);
+  }, [networkData]);
+
+  const elements = useMemo(
+    () => [...networkNodes, ...networkEdges],
+    [networkNodes, networkEdges],
+  );
+
+  const intelligenceObservation = useMemo(() => {
+    if (networkData?.observation) {
+      return networkData.observation;
+    }
+
+    if (networkData?.insight) {
+      return networkData.insight;
+    }
+
+    const accusedNodes = networkNodes.filter(
+      (node) => node.data.type === "accused",
+    );
+
+    if (accusedNodes.length === 0) {
+      return "No accused-person relationships are available in the current dataset.";
+    }
+
+    const connectionCounts = new Map();
+
+    networkEdges.forEach((edge) => {
+      const source = edge.data.source;
+      const target = edge.data.target;
+
+      connectionCounts.set(
+        source,
+        (connectionCounts.get(source) ?? 0) + 1,
+      );
+
+      connectionCounts.set(
+        target,
+        (connectionCounts.get(target) ?? 0) + 1,
+      );
+    });
+
+    const rankedAccused = accusedNodes
+      .map((node) => ({
+        ...node.data,
+        connections:
+          connectionCounts.get(node.data.id) ?? 0,
+      }))
+      .sort(
+        (first, second) =>
+          second.connections - first.connections,
+      );
+
+    const mostConnected = rankedAccused[0];
+
+    if (!mostConnected || mostConnected.connections === 0) {
+      return `${accusedNodes.length.toLocaleString()} accused persons are represented in the current criminal network.`;
+    }
+
+    return `${mostConnected.label} has the highest number of visible relationships, with ${mostConnected.connections.toLocaleString()} linked network connections.`;
+  }, [networkData, networkNodes, networkEdges]);
 
   const stylesheet = [
     {
@@ -91,6 +222,8 @@ function CriminalNetwork() {
   ];
 
   const handleCy = (cy) => {
+    cy.off("tap", "node");
+
     cy.on("tap", "node", (event) => {
       setSelectedNode(event.target.data());
     });
@@ -99,10 +232,14 @@ function CriminalNetwork() {
   const handleSearch = () => {
     const normalizedSearch = search.trim().toLowerCase();
 
-    if (!normalizedSearch) return;
+    if (!normalizedSearch) {
+      return;
+    }
 
     const result = networkNodes.find((node) =>
-      node.data.label.toLowerCase().includes(normalizedSearch)
+      String(node.data.label)
+        .toLowerCase()
+        .includes(normalizedSearch),
     );
 
     if (result) {
@@ -120,9 +257,13 @@ function CriminalNetwork() {
           <div className="flex gap-2">
             <input
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              onChange={(event) =>
+                setSearch(event.target.value)
+              }
               onKeyDown={(event) => {
-                if (event.key === "Enter") handleSearch();
+                if (event.key === "Enter") {
+                  handleSearch();
+                }
               }}
               placeholder="Search accused or FIR..."
               className="rounded-xl border border-slate-700 bg-[#071225] px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500"
@@ -141,22 +282,53 @@ function CriminalNetwork() {
 
       <main className="grid min-h-0 flex-1 gap-5 overflow-hidden p-5 xl:grid-cols-[minmax(0,1fr)_320px]">
         <section className="min-h-[600px] overflow-hidden rounded-2xl border border-slate-700 bg-[#061124]">
-          <CytoscapeComponent
-            elements={elements}
-            stylesheet={stylesheet}
-            cy={handleCy}
-            layout={{
-              name: "cose",
-              animate: true,
-              nodeRepulsion: 8000,
-              idealEdgeLength: 130,
-            }}
-            style={{
-              width: "100%",
-              height: "100%",
-              minHeight: "600px",
-            }}
-          />
+          {loading ? (
+            <div className="flex h-full min-h-[600px] items-center justify-center">
+              <p className="text-sm text-slate-400">
+                Loading criminal network...
+              </p>
+            </div>
+          ) : error ? (
+            <div className="flex h-full min-h-[600px] items-center justify-center px-6 text-center">
+              <div>
+                <ShieldAlert
+                  size={28}
+                  className="mx-auto text-red-400"
+                />
+
+                <p className="mt-3 text-sm font-medium text-red-300">
+                  Unable to load criminal network
+                </p>
+
+                <p className="mt-2 text-xs text-slate-500">
+                  {error}
+                </p>
+              </div>
+            </div>
+          ) : elements.length === 0 ? (
+            <div className="flex h-full min-h-[600px] items-center justify-center">
+              <p className="text-sm text-slate-400">
+                No network relationships are available.
+              </p>
+            </div>
+          ) : (
+            <CytoscapeComponent
+              elements={elements}
+              stylesheet={stylesheet}
+              cy={handleCy}
+              layout={{
+                name: "cose",
+                animate: true,
+                nodeRepulsion: 8000,
+                idealEdgeLength: 130,
+              }}
+              style={{
+                width: "100%",
+                height: "100%",
+                minHeight: "600px",
+              }}
+            />
+          )}
         </section>
 
         <aside className="space-y-4 overflow-y-auto">
@@ -166,9 +338,18 @@ function CriminalNetwork() {
             </h2>
 
             <div className="mt-5 space-y-3">
-              <Legend color="bg-red-500" label="Accused person" />
-              <Legend color="bg-purple-500" label="FIR or case" />
-              <Legend color="bg-teal-500" label="District" />
+              <Legend
+                color="bg-red-500"
+                label="Accused person"
+              />
+              <Legend
+                color="bg-purple-500"
+                label="FIR or case"
+              />
+              <Legend
+                color="bg-teal-500"
+                label="District"
+              />
             </div>
           </section>
 
@@ -204,6 +385,7 @@ function CriminalNetwork() {
                     <p className="text-xs text-slate-400">
                       Risk classification
                     </p>
+
                     <p className="mt-1 font-semibold capitalize text-red-400">
                       {selectedNode.risk}
                     </p>
@@ -212,7 +394,8 @@ function CriminalNetwork() {
               </div>
             ) : (
               <p className="mt-4 text-sm leading-6 text-slate-400">
-                Select a node in the network to inspect its details.
+                Select a node in the network to inspect its
+                details.
               </p>
             )}
           </section>
@@ -223,8 +406,9 @@ function CriminalNetwork() {
             </h3>
 
             <p className="mt-2 text-sm leading-6 text-slate-300">
-              Ravi Kumar and Anil Das appear across multiple case
-              relationships in the demonstration dataset.
+              {loading
+                ? "Analysing criminal relationships..."
+                : intelligenceObservation}
             </p>
           </section>
         </aside>
@@ -236,8 +420,13 @@ function CriminalNetwork() {
 function Legend({ color, label }) {
   return (
     <div className="flex items-center gap-3">
-      <span className={`h-3 w-3 rounded-full ${color}`} />
-      <span className="text-sm text-slate-300">{label}</span>
+      <span
+        className={`h-3 w-3 rounded-full ${color}`}
+      />
+
+      <span className="text-sm text-slate-300">
+        {label}
+      </span>
     </div>
   );
 }
