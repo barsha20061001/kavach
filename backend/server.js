@@ -11,7 +11,15 @@ const DATA_DIR = path.join(__dirname, "data");
 const PORT = Number(process.env.PORT || 5000);
 
 const app = express();
-app.use(cors());
+app.use(
+    cors({
+        origin: [
+            "http://localhost:5173",
+            "https://https://kavach-git-main-barshas-projects-d9a38869.vercel.app"
+        ],
+        credentials: true
+    })
+);
 app.use(express.json());
 
 function readCsv(fileName) {
