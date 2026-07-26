@@ -11,7 +11,6 @@ const DATA_DIR = path.join(__dirname, "data");
 const PORT = Number(process.env.PORT || 5000);
 
 const app = express();
-const cors = require("cors");
 app.use(cors());
 app.use(express.json());
 
