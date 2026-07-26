@@ -1,88 +1,138 @@
-import { useMemo, useState } from "react";
 import {
-  ClipboardList,
+  CheckCircle2,
   Download,
   Search,
   ShieldCheck,
   ShieldX,
 } from "lucide-react";
 
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
 import PageHeader from "../components/common/PageHeader";
-import { auditLogs } from "../data/crimeData";
+
+import {
+  getAuditLogs,
+  subscribeToAuditLogs,
+} from "../utils/auditLogger";
 
 function AuditLogs() {
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("All");
+  const [logs, setLogs] = useState(
+    () => getAuditLogs(),
+  );
+
+  const [search, setSearch] =
+    useState("");
+
+  const [filter, setFilter] =
+    useState("All");
+
+  useEffect(() => {
+    setLogs(getAuditLogs());
+
+    return subscribeToAuditLogs(
+      (updatedLogs) => {
+        setLogs(updatedLogs);
+      },
+    );
+  }, []);
+
+  const filterOptions = useMemo(() => {
+    const categories = [
+      ...new Set(
+        logs
+          .map((log) => log.category)
+          .filter(Boolean),
+      ),
+    ].sort((first, second) =>
+      first.localeCompare(second),
+    );
+
+    return [
+      "All",
+      ...categories,
+      "Success",
+      "Denied",
+      "Failed",
+    ];
+  }, [logs]);
 
   const filteredLogs = useMemo(() => {
-    return auditLogs.filter((log) => {
-      const searchableText = [
-        log.user,
-        log.role,
-        log.action,
-        log.resource,
-      ]
-        .join(" ")
-        .toLowerCase();
+    const normalizedSearch = search
+      .trim()
+      .toLowerCase();
+
+    return logs.filter((log) => {
+      const matchesSearch =
+        !normalizedSearch ||
+        [
+          log.user,
+          log.role,
+          log.action,
+          log.resource,
+          log.category,
+          log.status,
+          log.details,
+        ]
+          .join(" ")
+          .toLowerCase()
+          .includes(normalizedSearch);
+
+      const matchesFilter =
+        filter === "All" ||
+        log.category === filter ||
+        log.status === filter;
 
       return (
-        searchableText.includes(query.toLowerCase()) &&
-        (status === "All" || log.status === status)
+        matchesSearch &&
+        matchesFilter
       );
     });
-  }, [query, status]);
+  }, [logs, search, filter]);
 
-  const exportLogs = () => {
-    const headers = [
-      "User",
-      "Role",
-      "Action",
-      "Resource",
-      "Timestamp",
-      "Status",
-    ];
+  const exportCsv = () => {
+    if (!filteredLogs.length) {
+      return;
+    }
 
-    const rows = filteredLogs.map((log) => [
-      log.user,
-      log.role,
-      log.action,
-      log.resource,
-      log.timestamp,
-      log.status,
-    ]);
+    const rows = filteredLogs.map(
+      (log) => ({
+        User: log.user,
+        Role: log.role,
+        Action: log.action,
+        Resource: log.resource,
+        Category: log.category,
+        Timestamp: log.timestamp,
+        Status: log.status,
+        Details: log.details || "",
+      }),
+    );
 
-    const csv = [
-      headers.join(","),
-      ...rows.map((row) =>
-        row.map((value) => `"${value}"`).join(",")
-      ),
-    ].join("\n");
-
-    const blob = new Blob([csv], {
-      type: "text/csv;charset=utf-8",
-    });
-
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-
-    anchor.href = url;
-    anchor.download = "kavach-audit-logs.csv";
-    anchor.click();
-
-    URL.revokeObjectURL(url);
+    downloadCsv(
+      rows,
+      `kavach-audit-logs-${new Date()
+        .toISOString()
+        .slice(0, 10)}.csv`,
+    );
   };
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#020817]">
       <PageHeader
-        icon={ClipboardList}
+        icon={ShieldCheck}
         title="Audit Logs"
         description="Track data access, AI queries, reports and security-related activity"
         action={
           <button
             type="button"
-            onClick={exportLogs}
-            className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-500"
+            onClick={exportCsv}
+            disabled={
+              filteredLogs.length === 0
+            }
+            className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Download size={17} />
             Export CSV
@@ -91,29 +141,89 @@ function AuditLogs() {
       />
 
       <main className="min-h-0 flex-1 overflow-y-auto p-5">
-        <div className="grid gap-3 rounded-2xl border border-slate-700 bg-[#071225] p-4 md:grid-cols-[1fr_220px]">
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <Summary
+            title="Total activities"
+            value={formatNumber(
+              logs.length,
+            )}
+          />
+
+          <Summary
+            title="Successful"
+            value={formatNumber(
+              logs.filter(
+                (log) =>
+                  log.status ===
+                  "Success",
+              ).length,
+            )}
+          />
+
+          <Summary
+            title="Denied"
+            value={formatNumber(
+              logs.filter(
+                (log) =>
+                  log.status ===
+                  "Denied",
+              ).length,
+            )}
+          />
+
+          <Summary
+            title="AI queries"
+            value={formatNumber(
+              logs.filter(
+                (log) =>
+                  log.category ===
+                  "AI Query",
+              ).length,
+            )}
+          />
+        </div>
+
+        <div className="mt-5 grid gap-3 rounded-2xl border border-slate-700 bg-[#071225] p-4 md:grid-cols-[1fr_220px]">
           <div className="relative">
             <Search
-              size={17}
-              className="absolute left-4 top-3.5 text-slate-500"
+              size={18}
+              className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"
             />
 
             <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              type="search"
+              value={search}
+              onChange={(event) =>
+                setSearch(
+                  event.target.value,
+                )
+              }
               placeholder="Search users, actions or resources..."
-              className="w-full rounded-xl border border-slate-700 bg-[#061124] py-3 pl-11 pr-4 text-sm text-white outline-none focus:border-blue-500"
+              className="w-full rounded-xl border border-slate-700 bg-[#061124] py-3 pl-11 pr-4 text-sm text-white outline-none placeholder:text-slate-500 focus:border-blue-500"
             />
           </div>
 
           <select
-            value={status}
-            onChange={(event) => setStatus(event.target.value)}
-            className="rounded-xl border border-slate-700 bg-[#061124] px-4 py-3 text-sm text-white outline-none"
+            value={filter}
+            onChange={(event) =>
+              setFilter(
+                event.target.value,
+              )
+            }
+            className="rounded-xl border border-slate-700 bg-[#061124] px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
           >
-            <option>All</option>
-            <option>Success</option>
-            <option>Denied</option>
+            {filterOptions.map(
+              (option) => (
+                <option
+                  key={option}
+                  value={option}
+                >
+                  {option === "All"
+                    ? "All activities"
+                    : option}
+                </option>
+              ),
+            )}
           </select>
         </div>
 
@@ -126,67 +236,257 @@ function AuditLogs() {
                   "Role",
                   "Action",
                   "Resource",
+                  "Category",
                   "Timestamp",
                   "Status",
-                ].map((heading) => (
+                ].map((title) => (
                   <th
-                    key={heading}
-                    className="whitespace-nowrap px-4 py-4 text-left font-semibold text-slate-300"
+                    key={title}
+                    className="whitespace-nowrap px-4 py-4 text-left text-slate-300"
                   >
-                    {heading}
+                    {title}
                   </th>
                 ))}
               </tr>
             </thead>
 
             <tbody className="divide-y divide-slate-800 bg-[#061124]">
-              {filteredLogs.map((log) => (
-                <tr key={log.id} className="hover:bg-[#0b1930]">
-                  <td className="whitespace-nowrap px-4 py-4 font-medium text-white">
-                    {log.user}
-                  </td>
+              {filteredLogs.length ===
+              0 ? (
+                <tr>
+                  <td
+                    colSpan={7}
+                    className="h-48 px-4 py-8 text-center text-slate-400"
+                  >
+                    <ShieldCheck
+                      size={30}
+                      className="mx-auto text-slate-600"
+                    />
 
-                  <td className="whitespace-nowrap px-4 py-4 text-slate-400">
-                    {log.role}
-                  </td>
+                    <p className="mt-3">
+                      No audit activities
+                      have been recorded
+                      yet.
+                    </p>
 
-                  <td className="whitespace-nowrap px-4 py-4 text-slate-300">
-                    {log.action}
-                  </td>
-
-                  <td className="max-w-72 truncate px-4 py-4 text-slate-400">
-                    {log.resource}
-                  </td>
-
-                  <td className="whitespace-nowrap px-4 py-4 text-slate-400">
-                    {log.timestamp}
-                  </td>
-
-                  <td className="px-4 py-4">
-                    <span
-                      className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ${
-                        log.status === "Success"
-                          ? "bg-emerald-500/10 text-emerald-400"
-                          : "bg-red-500/10 text-red-400"
-                      }`}
-                    >
-                      {log.status === "Success" ? (
-                        <ShieldCheck size={14} />
-                      ) : (
-                        <ShieldX size={14} />
-                      )}
-
-                      {log.status}
-                    </span>
+                    <p className="mt-1 text-xs text-slate-500">
+                      Searches, AI queries,
+                      report downloads and
+                      alert acknowledgements
+                      will appear here.
+                    </p>
                   </td>
                 </tr>
-              ))}
+              ) : (
+                filteredLogs.map(
+                  (log) => (
+                    <tr
+                      key={log.id}
+                      className="hover:bg-[#0b1930]"
+                    >
+                      <td className="whitespace-nowrap px-4 py-4 font-semibold text-white">
+                        {log.user}
+                      </td>
+
+                      <td className="whitespace-nowrap px-4 py-4 text-slate-400">
+                        {log.role}
+                      </td>
+
+                      <td className="px-4 py-4 text-slate-300">
+                        {log.action}
+                      </td>
+
+                      <td className="max-w-72 break-words px-4 py-4 text-slate-400">
+                        {log.resource}
+                      </td>
+
+                      <td className="whitespace-nowrap px-4 py-4">
+                        <span className="rounded-full bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-300">
+                          {log.category}
+                        </span>
+                      </td>
+
+                      <td className="whitespace-nowrap px-4 py-4 text-slate-400">
+                        {formatDateTime(
+                          log.timestamp,
+                        )}
+                      </td>
+
+                      <td className="whitespace-nowrap px-4 py-4">
+                        <StatusBadge
+                          status={
+                            log.status
+                          }
+                        />
+                      </td>
+                    </tr>
+                  ),
+                )
+              )}
             </tbody>
           </table>
+        </div>
+
+        <div className="mt-5 rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3">
+          <p className="text-xs leading-5 text-slate-400">
+            Audit entries represent actual
+            actions performed inside this
+            Kavach AI browser session. FIR
+            dataset rows are not converted
+            into fake audit events. Logs are
+            stored locally for this
+            demonstration and can be
+            exported as CSV.
+          </p>
         </div>
       </main>
     </div>
   );
+}
+
+function Summary({ title, value }) {
+  return (
+    <div className="rounded-2xl border border-slate-700 bg-[#071225] p-5">
+      <p className="text-sm text-slate-400">
+        {title}
+      </p>
+
+      <p className="mt-2 text-2xl font-bold text-white">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function StatusBadge({ status }) {
+  if (status === "Denied") {
+    return (
+      <span className="inline-flex items-center gap-2 rounded-full bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-400">
+        <ShieldX size={14} />
+        Denied
+      </span>
+    );
+  }
+
+  if (status === "Failed") {
+    return (
+      <span className="inline-flex items-center gap-2 rounded-full bg-amber-500/10 px-3 py-1 text-xs font-semibold text-amber-400">
+        <ShieldX size={14} />
+        Failed
+      </span>
+    );
+  }
+
+  return (
+    <span className="inline-flex items-center gap-2 rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-400">
+      <CheckCircle2 size={14} />
+      Success
+    </span>
+  );
+}
+
+function downloadCsv(rows, fileName) {
+  const columns = [
+    ...new Set(
+      rows.flatMap((row) =>
+        Object.keys(row),
+      ),
+    ),
+  ];
+
+  const csvLines = [
+    columns
+      .map(escapeCsvValue)
+      .join(","),
+
+    ...rows.map((row) =>
+      columns
+        .map((column) =>
+          escapeCsvValue(
+            row[column] ?? "",
+          ),
+        )
+        .join(","),
+    ),
+  ];
+
+  const blob = new Blob(
+    [
+      "\uFEFF" +
+        csvLines.join("\n"),
+    ],
+    {
+      type:
+        "text/csv;charset=utf-8;",
+    },
+  );
+
+  const url =
+    URL.createObjectURL(blob);
+
+  const anchor =
+    document.createElement("a");
+
+  anchor.href = url;
+  anchor.download = fileName;
+
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+
+  URL.revokeObjectURL(url);
+}
+
+function escapeCsvValue(value) {
+  const text = String(
+    value ?? "",
+  );
+
+  if (
+    text.includes(",") ||
+    text.includes('"') ||
+    text.includes("\n")
+  ) {
+    return `"${text.replace(
+      /"/g,
+      '""',
+    )}"`;
+  }
+
+  return text;
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return "Not available";
+  }
+
+  const date = new Date(value);
+
+  if (
+    Number.isNaN(date.getTime())
+  ) {
+    return String(value);
+  }
+
+  return date.toLocaleString(
+    "en-IN",
+    {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    },
+  );
+}
+
+function formatNumber(value) {
+  const number = Number(value);
+
+  return Number.isFinite(number)
+    ? number.toLocaleString("en-IN")
+    : "0";
 }
 
 export default AuditLogs;

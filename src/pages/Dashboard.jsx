@@ -1,10 +1,11 @@
 import {
   Activity,
   AlertTriangle,
-  ArrowUpRight,
   FileText,
   MapPin,
 } from "lucide-react";
+
+import { useState } from "react";
 
 import {
   Bar,
@@ -25,451 +26,670 @@ import {
 import PageHeader from "../components/common/PageHeader";
 import { useApi } from "../hooks/useApi";
 import { api } from "../services/api";
+import DashboardTour from "../components/common/DashboardTour";
 
-function MetricCard({ metric }) {
-  const Icon = metric.icon;
-
-  return (
-    <article className="rounded-2xl border border-slate-800 bg-[#0f1930]/90 p-6 shadow-xl shadow-black/10 transition hover:-translate-y-0.5 hover:border-slate-700">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <p className="text-sm font-medium text-slate-400">
-            {metric.title}
-          </p>
-
-          <p className="mt-3 truncate text-2xl font-bold text-white">
-            {metric.value}
-          </p>
-
-          <p className="mt-2 text-xs text-slate-500">
-            {metric.detail}
-          </p>
-        </div>
-
-        <div className="flex size-12 shrink-0 items-center justify-center rounded-xl border border-blue-500/20 bg-blue-500/10">
-          <Icon
-            size={23}
-            className="text-blue-400"
-          />
-        </div>
-      </div>
-
-      <div className="mt-5 flex items-center gap-1 text-xs font-semibold text-blue-400">
-        <span>{metric.change}</span>
-
-        {metric.change && (
-          <ArrowUpRight size={14} />
-        )}
-      </div>
-    </article>
-  );
-}
-
-function DashboardPanel({ title, children, className = "" }) {
-  return (
-    <section
-      className={[
-        "rounded-2xl border border-slate-800",
-        "bg-[#0f1930]/90 p-6 shadow-xl shadow-black/10",
-        className,
-      ].join(" ")}
-    >
-      <h3 className="text-base font-semibold text-white">
-        {title}
-      </h3>
-
-      <div className="mt-5">{children}</div>
-    </section>
-  );
-}
-
-function ChartTooltip({ active, payload, label }) {
-  if (!active || !payload?.length) {
-    return null;
-  }
-
-  return (
-    <div className="rounded-xl border border-slate-700 bg-[#0b1325] px-4 py-3 shadow-xl">
-      {label && (
-        <p className="mb-1 text-xs font-semibold text-slate-300">
-          {label}
-        </p>
-      )}
-
-      {payload.map((item) => (
-        <p
-          key={`${item.dataKey}-${item.name}`}
-          className="text-xs text-slate-400"
-        >
-          <span className="font-semibold text-white">
-            {item.name}:
-          </span>{" "}
-          {Number(item.value).toLocaleString()}
-        </p>
-      ))}
-    </div>
-  );
-}
-
-const pieColours = [
+const CHART_COLORS = [
+  "#22c55e",
   "#3b82f6",
-  "#06b6d4",
   "#8b5cf6",
+  "#06b6d4",
   "#f59e0b",
-  "#10b981",
   "#ef4444",
-  "#ec4899",
   "#14b8a6",
+  "#ec4899",
+  "#a3e635",
+  "#f97316",
 ];
 
-export default function Dashboard() {
+function Dashboard() {
   const {
-    data: dashboardData,
+    data: dashboardResponse,
     loading: dashboardLoading,
     error: dashboardError,
   } = useApi(() => api.dashboard(), []);
 
   const {
-    data: trendData,
-    loading: trendLoading,
-    error: trendError,
+    data: trendsResponse,
+    loading: trendsLoading,
+    error: trendsError,
   } = useApi(() => api.crimeTrends(), []);
 
-  const totalCases =
-    dashboardData?.kpis?.totalCases ?? 0;
+  const dashboardData = normalizeDashboardData(
+    dashboardResponse,
+    trendsResponse,
+  );
 
-  const arrestLinkedCases =
-    dashboardData?.kpis?.arrestLinkedCases ?? 0;
+  const loading = dashboardLoading || trendsLoading;
+  const error = dashboardError || trendsError;
 
-  const severeCases =
-    dashboardData?.kpis?.severeCases ?? 0;
+  const {
+    totalCases,
+    activeInvestigations,
+    heinousOffences,
+    highestCaseVolume,
+    categoryDistribution,
+    statusDistribution,
+    monthlyTrend,
+  } = dashboardData;
 
-  const highestDistrict =
-    dashboardData?.topDistricts?.[0];
+  const activePercentage = calculatePercentage(
+    activeInvestigations,
+    totalCases,
+  );
 
-  const activeInvestigationPercentage = totalCases
-    ? ((arrestLinkedCases / totalCases) * 100).toFixed(1)
-    : "0.0";
+  const heinousPercentage = calculatePercentage(
+    heinousOffences,
+    totalCases,
+  );
 
-  const severeCasePercentage = totalCases
-    ? ((severeCases / totalCases) * 100).toFixed(1)
-    : "0.0";
 
-  const metrics = [
-    {
-      title: "Total Registered Cases",
-      value: dashboardLoading
-        ? "..."
-        : totalCases.toLocaleString(),
-      detail: "Across the selected period",
-      change: dashboardError ? "Unable to load" : "Live dataset",
-      icon: FileText,
-    },
-    {
-      title: "Active Investigations",
-      value: dashboardLoading
-        ? "..."
-        : arrestLinkedCases.toLocaleString(),
-      detail: `${activeInvestigationPercentage}% of total cases`,
-      change: dashboardError ? "Unable to load" : "Arrest-linked cases",
-      icon: Activity,
-    },
-    {
-      title: "Heinous Offences",
-      value: dashboardLoading
-        ? "..."
-        : severeCases.toLocaleString(),
-      detail: `${severeCasePercentage}% of total cases`,
-      change: dashboardError ? "Unable to load" : "High severity cases",
-      icon: AlertTriangle,
-    },
-    {
-      title: "Highest Case Volume",
-      value: dashboardLoading
-        ? "..."
-        : highestDistrict?.districtName ?? "No data",
-      detail: dashboardLoading
-        ? "Loading district data"
-        : `${(
-            highestDistrict?.count ?? 0
-          ).toLocaleString()} registered cases`,
-      change: dashboardError ? "Unable to load" : "View map",
-      icon: MapPin,
-    },
-  ];
-
-  const categoryData =
-    dashboardData?.topCrimeTypes?.map((item) => ({
-      name: item.crimeHeadName,
-      value: item.count,
-    })) ?? [];
-
-  const severityData =
-    dashboardData?.casesByStatus?.map((item) => ({
-      name: item.statusName,
-      count: item.count,
-    })) ?? [];
-
-  const monthlyTrend =
-    trendData?.monthlyTrend?.map((item) => ({
-      month: item.month,
-      cases: item.count,
-    })) ?? [];
+  const [tourOpen, setTourOpen] =
+  useState(false);
 
   return (
-    <>
-      <PageHeader
+    <div className="flex h-full min-h-0 flex-col bg-[#020817]">
+      <div data-tour="dashboard-header">
+        <PageHeader
+        icon={Activity}
         title="Crime Intelligence Dashboard"
         description="Historical and operational insights from Karnataka FIR records"
         action={
           <button
             type="button"
-            className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-500"
+            onClick={() => setTourOpen(true)}
+           className="rounded-xl bg-blue-600 px-5 py-3 font-medium text-white transition hover:bg-blue-500"
           >
-            Take a tour
+           Take a tour
           </button>
         }
-      />
+        />
+      </div>
 
-      {dashboardError && (
-        <div className="mb-5 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-          {dashboardError}
-        </div>
-      )}
-
-      <section className="grid gap-5 sm:grid-cols-2 xl:grid-cols-4">
-        {metrics.map((metric) => (
-          <MetricCard
-            key={metric.title}
-            metric={metric}
-          />
-        ))}
-      </section>
-
-      <section className="mt-5 grid gap-5 xl:grid-cols-2">
-        <DashboardPanel title="Case Category Distribution">
-          <div className="h-72 rounded-xl border border-slate-800 bg-slate-950/20">
-            {dashboardLoading ? (
-              <div className="flex h-full items-center justify-center">
-                <p className="text-sm text-slate-500">
-                  Loading category distribution...
-                </p>
-              </div>
-            ) : categoryData.length === 0 ? (
-              <div className="flex h-full items-center justify-center">
-                <p className="text-sm text-slate-500">
-                  No category data available
-                </p>
-              </div>
-            ) : (
-              <ResponsiveContainer
-                width="100%"
-                height="100%"
-              >
-                <PieChart>
-                  <Pie
-                    data={categoryData}
-                    dataKey="value"
-                    nameKey="name"
-                    cx="50%"
-                    cy="50%"
-                    innerRadius={58}
-                    outerRadius={90}
-                    paddingAngle={3}
-                  >
-                    {categoryData.map((entry, index) => (
-                      <Cell
-                        key={entry.name}
-                        fill={
-                          pieColours[
-                            index % pieColours.length
-                          ]
-                        }
-                      />
-                    ))}
-                  </Pie>
-
-                  <Tooltip content={<ChartTooltip />} />
-
-                  <Legend
-                    verticalAlign="bottom"
-                    height={40}
-                    formatter={(value) => (
-                      <span className="text-xs text-slate-400">
-                        {value}
-                      </span>
-                    )}
-                  />
-                </PieChart>
-              </ResponsiveContainer>
-            )}
+      <main className="min-h-0 flex-1 overflow-y-auto p-5">
+        {error && (
+          <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {String(error)}
           </div>
-        </DashboardPanel>
+        )}
 
-        <DashboardPanel title="Offence Severity Distribution">
-          <div className="h-72 rounded-xl border border-slate-800 bg-slate-950/20">
-            {dashboardLoading ? (
-              <div className="flex h-full items-center justify-center">
-                <p className="text-sm text-slate-500">
-                  Loading severity distribution...
-                </p>
-              </div>
-            ) : severityData.length === 0 ? (
-              <div className="flex h-full items-center justify-center">
-                <p className="text-sm text-slate-500">
-                  No severity data available
-                </p>
-              </div>
-            ) : (
-              <ResponsiveContainer
-                width="100%"
-                height="100%"
-              >
-                <BarChart
-                  data={severityData}
-                  margin={{
-                    top: 20,
-                    right: 20,
-                    left: 0,
-                    bottom: 35,
-                  }}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="#1e293b"
-                    vertical={false}
-                  />
-
-                  <XAxis
-                    dataKey="name"
-                    stroke="#64748b"
-                    tick={{
-                      fill: "#94a3b8",
-                      fontSize: 11,
-                    }}
-                    axisLine={false}
-                    tickLine={false}
-                    angle={-20}
-                    textAnchor="end"
-                    interval={0}
-                  />
-
-                  <YAxis
-                    stroke="#64748b"
-                    tick={{
-                      fill: "#94a3b8",
-                      fontSize: 11,
-                    }}
-                    axisLine={false}
-                    tickLine={false}
-                    allowDecimals={false}
-                  />
-
-                  <Tooltip content={<ChartTooltip />} />
-
-                  <Bar
-                    dataKey="count"
-                    name="Cases"
-                    fill="#3b82f6"
-                    radius={[8, 8, 0, 0]}
-                  />
-                </BarChart>
-              </ResponsiveContainer>
-            )}
-          </div>
-        </DashboardPanel>
-
-        <DashboardPanel
-          title="Cases Over Time"
-          className="xl:col-span-2"
+        <div
+          data-tour="dashboard-kpis"
+          className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4"
         >
-          <div className="h-80 rounded-xl border border-slate-800 bg-slate-950/20">
-            {trendLoading ? (
-              <div className="flex h-full items-center justify-center">
-                <p className="text-sm text-slate-500">
-                  Loading monthly crime trend...
-                </p>
-              </div>
-            ) : trendError ? (
-              <div className="flex h-full items-center justify-center">
-                <p className="text-sm text-red-300">
-                  {trendError}
-                </p>
-              </div>
-            ) : monthlyTrend.length === 0 ? (
-              <div className="flex h-full items-center justify-center">
-                <p className="text-sm text-slate-500">
-                  No monthly trend data available
-                </p>
-              </div>
+          <MetricCard
+            title="Total Registered Cases"
+            value={
+              loading
+                ? "..."
+                : formatNumber(totalCases)
+            }
+            description="Across the selected period"
+            linkText="Live dataset ↗"
+            icon={FileText}
+          />
+
+          <MetricCard
+            title="Active Investigations"
+            value={
+              loading
+                ? "..."
+                : formatNumber(activeInvestigations)
+            }
+            description={
+              loading
+                ? "Calculating..."
+                : `${activePercentage}% of total cases`
+            }
+            linkText="Investigation records ↗"
+            icon={Activity}
+          />
+
+          <MetricCard
+            title="Heinous Offences"
+            value={
+              loading
+                ? "..."
+                : formatNumber(heinousOffences)
+            }
+            description={
+              loading
+                ? "Calculating..."
+                : `${heinousPercentage}% of total cases`
+            }
+            linkText="High severity cases ↗"
+            icon={AlertTriangle}
+          />
+
+          <MetricCard
+            title="Highest Case Volume"
+            value={
+              loading
+                ? "..."
+                : highestCaseVolume.district
+            }
+            description={
+              loading
+                ? "Loading..."
+                : `${formatNumber(
+                    highestCaseVolume.count,
+                  )} registered cases`
+            }
+            linkText="View map ↗"
+            icon={MapPin}
+          />
+        </div>
+
+        <div className="mt-5 grid gap-5 xl:grid-cols-2">
+          <DashboardPanel
+            title="Case Category Distribution"
+            tourId="category-chart"
+          >
+            {loading ? (
+              <ChartLoading />
+            ) : categoryDistribution.length === 0 ? (
+              <NoChartData />
             ) : (
-              <ResponsiveContainer
-                width="100%"
-                height="100%"
-              >
-                <LineChart
-                  data={monthlyTrend}
-                  margin={{
-                    top: 20,
-                    right: 25,
-                    left: 0,
-                    bottom: 10,
-                  }}
+              <div className="rounded-xl border border-slate-800 bg-[#081329] p-3">
+                <ResponsiveContainer
+                  width="100%"
+                  height={270}
                 >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="#1e293b"
-                    vertical={false}
-                  />
+                  <PieChart>
+                    <Pie
+                      data={categoryDistribution}
+                      dataKey="value"
+                      nameKey="name"
+                      innerRadius={55}
+                      outerRadius={92}
+                      paddingAngle={2}
+                      stroke="#cbd5e1"
+                      strokeWidth={1}
+                    >
+                      {categoryDistribution.map(
+                        (item, index) => (
+                          <Cell
+                            key={`${item.name}-${index}`}
+                            fill={
+                              CHART_COLORS[
+                                index %
+                                  CHART_COLORS.length
+                              ]
+                            }
+                          />
+                        ),
+                      )}
+                    </Pie>
 
-                  <XAxis
-                    dataKey="month"
-                    stroke="#64748b"
-                    tick={{
-                      fill: "#94a3b8",
-                      fontSize: 11,
-                    }}
-                    axisLine={false}
-                    tickLine={false}
-                  />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#071225",
+                        border: "1px solid #334155",
+                        borderRadius: "12px",
+                        color: "#ffffff",
+                      }}
+                      formatter={(value) => [
+                        formatNumber(value),
+                        "Cases",
+                      ]}
+                    />
 
-                  <YAxis
-                    stroke="#64748b"
-                    tick={{
-                      fill: "#94a3b8",
-                      fontSize: 11,
-                    }}
-                    axisLine={false}
-                    tickLine={false}
-                    allowDecimals={false}
-                  />
-
-                  <Tooltip content={<ChartTooltip />} />
-
-                  <Line
-                    type="monotone"
-                    dataKey="cases"
-                    name="Cases"
-                    stroke="#3b82f6"
-                    strokeWidth={3}
-                    dot={{
-                      r: 3,
-                      fill: "#3b82f6",
-                      strokeWidth: 0,
-                    }}
-                    activeDot={{
-                      r: 6,
-                      fill: "#60a5fa",
-                      stroke: "#0f172a",
-                      strokeWidth: 2,
-                    }}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
+                    <Legend
+                      verticalAlign="bottom"
+                      formatter={(value) => (
+                        <span className="text-xs text-slate-400">
+                          {value}
+                        </span>
+                      )}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
             )}
-          </div>
-        </DashboardPanel>
-      </section>
-    </>
+          </DashboardPanel>
+
+          <DashboardPanel
+            title="Offence Severity Distribution"
+            tourId="severity-chart"
+          >
+            {loading ? (
+              <ChartLoading />
+            ) : statusDistribution.length === 0 ? (
+              <NoChartData />
+            ) : (
+              <div className="rounded-xl border border-slate-800 bg-[#081329] p-3">
+                <ResponsiveContainer
+                  width="100%"
+                  height={270}
+                >
+                  <BarChart
+                    data={statusDistribution}
+                    margin={{
+                      top: 10,
+                      right: 10,
+                      left: 0,
+                      bottom: 35,
+                    }}
+                  >
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="#1e293b"
+                    />
+
+                    <XAxis
+                      dataKey="name"
+                      stroke="#94a3b8"
+                      tick={{
+                        fontSize: 11,
+                      }}
+                      angle={-20}
+                      textAnchor="end"
+                      interval={0}
+                    />
+
+                    <YAxis
+                      stroke="#94a3b8"
+                      tick={{
+                        fontSize: 11,
+                      }}
+                    />
+
+                    <Tooltip
+                      cursor={{
+                        fill: "rgba(59, 130, 246, 0.05)",
+                      }}
+                      contentStyle={{
+                        backgroundColor: "#071225",
+                        border: "1px solid #334155",
+                        borderRadius: "12px",
+                        color: "#ffffff",
+                      }}
+                      formatter={(value) => [
+                        formatNumber(value),
+                        "Cases",
+                      ]}
+                    />
+
+                    <Bar
+                      dataKey="value"
+                      fill="#3b82f6"
+                      radius={[8, 8, 0, 0]}
+                    />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </DashboardPanel>
+        </div>
+
+        <div className="mt-5">
+          <DashboardPanel
+            title="Cases Over Time"
+            tourId="time-chart"
+          >
+            {loading ? (
+              <ChartLoading height="h-[310px]" />
+            ) : monthlyTrend.length === 0 ? (
+              <NoChartData height="h-[310px]" />
+            ) : (
+              <div className="rounded-xl border border-slate-800 bg-[#081329] p-3">
+                <ResponsiveContainer
+                  width="100%"
+                  height={290}
+                >
+                  <LineChart
+                    data={monthlyTrend}
+                    margin={{
+                      top: 10,
+                      right: 20,
+                      left: 0,
+                      bottom: 15,
+                    }}
+                  >
+                    <CartesianGrid
+                      strokeDasharray="3 3"
+                      stroke="#1e293b"
+                    />
+
+                    <XAxis
+                      dataKey="month"
+                      stroke="#94a3b8"
+                      tick={{
+                        fontSize: 10,
+                      }}
+                      minTickGap={25}
+                    />
+
+                    <YAxis
+                      stroke="#94a3b8"
+                      tick={{
+                        fontSize: 11,
+                      }}
+                    />
+
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: "#071225",
+                        border: "1px solid #334155",
+                        borderRadius: "12px",
+                        color: "#ffffff",
+                      }}
+                      formatter={(value) => [
+                        formatNumber(value),
+                        "Cases",
+                      ]}
+                    />
+
+                    <Line
+                      type="monotone"
+                      dataKey="cases"
+                      name="Cases"
+                      stroke="#3b82f6"
+                      strokeWidth={3}
+                      dot={{
+                        r: 2,
+                        fill: "#3b82f6",
+                      }}
+                      activeDot={{
+                        r: 5,
+                      }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+            )}
+          </DashboardPanel>
+        </div>
+
+        <div className="mt-5 rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3">
+          <p className="text-xs text-slate-400">
+            Synthetic demonstration data generated for
+            the Kavach AI prototype. This dashboard does
+            not contain real police records or personal
+            data.
+          </p>
+        </div>
+      </main>
+
+      <DashboardTour
+        open={tourOpen}
+        onClose={() => setTourOpen(false)}
+      />
+    </div>
   );
 }
+
+function normalizeDashboardData(
+  dashboardResponse,
+  trendsResponse,
+) {
+  const dashboard =
+    dashboardResponse?.data ??
+    dashboardResponse ??
+    {};
+
+  const trendData =
+    trendsResponse?.data ??
+    trendsResponse ??
+    {};
+
+  const kpis =
+    dashboard.kpis ??
+    dashboard.summary ??
+    {};
+
+  const totalCases = toNumber(
+    kpis.totalCases ??
+      kpis.totalRegisteredCases ??
+      dashboard.totalCases ??
+      dashboard.totalRegisteredCases,
+  );
+
+  const activeInvestigations = toNumber(
+    kpis.activeInvestigations ??
+      kpis.underInvestigation ??
+      kpis.investigationCases ??
+      dashboard.activeInvestigations,
+  );
+
+  const heinousOffences = toNumber(
+    kpis.heinousOffences ??
+      kpis.severeCases ??
+      kpis.highSeverityCases ??
+      dashboard.heinousOffences,
+  );
+
+  const districtRows = normalizeArray(
+    dashboard.topDistricts ??
+      dashboard.districtDistribution ??
+      dashboard.districts ??
+      dashboard.casesByDistrict,
+  );
+
+  const highestDistrictRow =
+    districtRows.length > 0
+      ? [...districtRows].sort(
+          (first, second) =>
+            getCount(second) - getCount(first),
+        )[0]
+      : null;
+
+  const highestCaseVolume = {
+    district:
+      kpis.highestCaseVolume?.district ??
+      kpis.highestCaseVolume?.districtName ??
+      dashboard.highestCaseVolume?.district ??
+      dashboard.highestCaseVolume?.districtName ??
+      highestDistrictRow?.district ??
+      highestDistrictRow?.districtName ??
+      highestDistrictRow?.name ??
+      "No data",
+
+    count: toNumber(
+      kpis.highestCaseVolume?.count ??
+        dashboard.highestCaseVolume?.count ??
+        getCount(highestDistrictRow),
+    ),
+  };
+
+  const categorySource = normalizeArray(
+    dashboard.categoryDistribution ??
+      dashboard.crimeCategories ??
+      dashboard.topCrimeTypes ??
+      dashboard.casesByCrimeCategory ??
+      trendData.crimeTypes ??
+      trendData.categoryDistribution,
+  );
+
+  const categoryDistribution = categorySource
+    .map((item) => ({
+      name:
+        item.name ??
+        item.crimeGroupName ??
+        item.crimeHeadName ??
+        item.category ??
+        item.label ??
+        "Unknown",
+
+      value: getCount(item),
+    }))
+    .filter((item) => item.value > 0);
+
+  const statusSource = normalizeArray(
+    dashboard.statusDistribution ??
+      dashboard.casesByStatus ??
+      dashboard.offenceSeverityDistribution ??
+      dashboard.caseStatusDistribution ??
+      trendData.statusDistribution ??
+      trendData.casesByStatus,
+  );
+
+  const statusDistribution = statusSource
+    .map((item) => ({
+      name:
+        item.name ??
+        item.statusName ??
+        item.gravityName ??
+        item.status ??
+        item.label ??
+        "Unknown",
+
+      value: getCount(item),
+    }))
+    .filter((item) => item.value > 0);
+
+  const monthlySource = normalizeArray(
+    dashboard.monthlyTrend ??
+      dashboard.casesOverTime ??
+      dashboard.monthlyCases ??
+      trendData.monthlyTrend ??
+      trendData.casesOverTime ??
+      trendData.monthlyCases,
+  );
+
+  const monthlyTrend = monthlySource
+    .map((item) => ({
+      month:
+        item.month ??
+        item.yearMonth ??
+        item.period ??
+        item.date ??
+        item.label ??
+        "Unknown",
+
+      cases: toNumber(
+        item.cases ??
+          item.count ??
+          item.value ??
+          item.totalCases,
+      ),
+    }))
+    .filter((item) => item.cases >= 0);
+
+  return {
+    totalCases,
+    activeInvestigations,
+    heinousOffences,
+    highestCaseVolume,
+    categoryDistribution,
+    statusDistribution,
+    monthlyTrend,
+  };
+}
+
+function normalizeArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function getCount(item) {
+  if (!item) {
+    return 0;
+  }
+
+  return toNumber(
+    item.count ??
+      item.value ??
+      item.total ??
+      item.totalCases ??
+      item.caseCount ??
+      item.cases,
+  );
+}
+
+function toNumber(value) {
+  const number = Number(value);
+
+  return Number.isFinite(number) ? number : 0;
+}
+
+function calculatePercentage(value, total) {
+  if (!total) {
+    return "0.0";
+  }
+
+  return ((value / total) * 100).toFixed(1);
+}
+
+function formatNumber(value) {
+  return toNumber(value).toLocaleString("en-IN");
+}
+
+function MetricCard({
+  title,
+  value,
+  description,
+  linkText,
+  icon: Icon,
+}) {
+  return (
+    <article className="rounded-2xl border border-slate-700 bg-[#0c1730] p-6">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-slate-400">
+            {title}
+          </p>
+
+          <p className="mt-3 truncate text-2xl font-bold text-white">
+            {value}
+          </p>
+
+          <p className="mt-2 text-xs text-slate-500">
+            {description}
+          </p>
+        </div>
+
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-blue-500/30 bg-blue-500/10 text-blue-400">
+          <Icon size={23} />
+        </div>
+      </div>
+
+      <p className="mt-5 text-xs font-semibold text-blue-400">
+        {linkText}
+      </p>
+    </article>
+  );
+}
+
+function DashboardPanel({
+  title,
+  children,
+  tourId,
+}) {
+  return (
+    <section
+      data-tour={tourId}
+      className="rounded-2xl border border-slate-700 bg-[#0c1730] p-6"
+    >
+      <h2 className="mb-5 font-semibold text-white">
+        {title}
+      </h2>
+
+      {children}
+    </section>
+  );
+}
+
+function ChartLoading({ height = "h-[270px]" }) {
+  return (
+    <div
+      className={`flex ${height} items-center justify-center rounded-xl border border-slate-800 bg-[#081329]`}
+    >
+      <p className="text-sm text-slate-400">
+        Loading dataset analytics...
+      </p>
+    </div>
+  );
+}
+
+function NoChartData({ height = "h-[270px]" }) {
+  return (
+    <div
+      className={`flex ${height} items-center justify-center rounded-xl border border-slate-800 bg-[#081329]`}
+    >
+      <p className="text-sm text-slate-400">
+        No dataset records available.
+      </p>
+    </div>
+  );
+}
+
+export default Dashboard;

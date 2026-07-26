@@ -1,102 +1,380 @@
-import { useEffect, useState } from "react";
 import {
   Bell,
   Database,
   Languages,
   LockKeyhole,
-  Moon,
+  RotateCcw,
   Save,
-  Settings as SettingsIcon,
-  ShieldCheck,
 } from "lucide-react";
 
-import PageHeader from "../components/common/PageHeader";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 
-const defaultSettings = {
-  language: "English",
-  dateRange: "12",
-  compactMode: false,
-  notifications: true,
-  criticalAlerts: true,
-  auditLogging: true,
-  showSensitiveData: false,
-  defaultDistrict: "All Karnataka",
-  autoRefresh: "5",
+import PageHeader from "../components/common/PageHeader";
+import { api } from "../services/api";
+import { addAuditLog } from "../utils/auditLogger";
+
+const SETTINGS_KEY = "kavach-settings";
+const SETTINGS_EVENT = "kavach-settings-updated";
+
+const DEFAULT_SETTINGS = {
+  language: "English + ಕನ್ನಡ",
+  dateRange: "Last 30 days",
+  compactInterface: false,
+
+  notificationsEnabled: true,
+  criticalAlertsEnabled: true,
+  refreshInterval: "Every 5 minutes",
+
+  auditLoggingEnabled: true,
+  sessionTimeout: "30 minutes",
+
+  defaultDistrictId: "All",
+  defaultDistrictName: "All Karnataka",
+
+  defaultStatusId: "All",
+  defaultStatusName: "All statuses",
 };
 
+function loadSavedSettings() {
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem(SETTINGS_KEY) ||
+        "{}",
+    );
+
+    return {
+      ...DEFAULT_SETTINGS,
+      ...saved,
+    };
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+
 function Settings() {
-  const [settings, setSettings] = useState(() => {
-    try {
-      const saved = localStorage.getItem("kavach-settings");
+  const [settings, setSettings] =
+    useState(loadSavedSettings);
 
-      return saved
-        ? {
-            ...defaultSettings,
-            ...JSON.parse(saved),
-          }
-        : defaultSettings;
-    } catch {
-      return defaultSettings;
-    }
-  });
+  const [savedSettings, setSavedSettings] =
+    useState(loadSavedSettings);
 
-  const [saved, setSaved] = useState(false);
+  const [districts, setDistricts] =
+    useState([]);
+
+  const [statuses, setStatuses] =
+    useState([]);
+
+  const [loadingLookups, setLoadingLookups] =
+    useState(true);
+
+  const [message, setMessage] =
+    useState("");
+
+  const [messageType, setMessageType] =
+    useState("success");
 
   useEffect(() => {
-    document.documentElement.dataset.compact =
-      settings.compactMode ? "true" : "false";
-  }, [settings.compactMode]);
+    let active = true;
 
-  const updateSetting = (name, value) => {
+    async function loadDatasetOptions() {
+      setLoadingLookups(true);
+
+      try {
+        const [
+          districtsResponse,
+          lookupsResponse,
+        ] = await Promise.all([
+          api.districts(),
+          api.lookups(),
+        ]);
+
+        if (!active) {
+          return;
+        }
+
+        const districtSource =
+          districtsResponse?.districts ??
+          districtsResponse?.data
+            ?.districts ??
+          districtsResponse?.data ??
+          districtsResponse ??
+          [];
+
+        const lookupData =
+          lookupsResponse?.data ??
+          lookupsResponse ??
+          {};
+
+        const statusSource =
+          lookupData.statuses ??
+          lookupData.caseStatuses ??
+          lookupData.CaseStatusMaster ??
+          [];
+
+        setDistricts(
+          normalizeDistricts(
+            districtSource,
+          ),
+        );
+
+        setStatuses(
+          normalizeStatuses(statusSource),
+        );
+      } catch (error) {
+        console.error(
+          "Unable to load settings options:",
+          error,
+        );
+
+        showMessage(
+          "Dataset filters could not be loaded.",
+          "error",
+        );
+      } finally {
+        if (active) {
+          setLoadingLookups(false);
+        }
+      }
+    }
+
+    loadDatasetOptions();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    applyInterfaceSettings(settings);
+  }, [settings.compactInterface]);
+
+  useEffect(() => {
+    if (!message) {
+      return undefined;
+    }
+
+    const timeout = setTimeout(() => {
+      setMessage("");
+    }, 3000);
+
+    return () => clearTimeout(timeout);
+  }, [message]);
+
+  const hasChanges = useMemo(
+    () =>
+      JSON.stringify(settings) !==
+      JSON.stringify(savedSettings),
+    [settings, savedSettings],
+  );
+
+  function showMessage(
+    text,
+    type = "success",
+  ) {
+    setMessage(text);
+    setMessageType(type);
+  }
+
+  function updateSetting(name, value) {
     setSettings((current) => ({
       ...current,
       [name]: value,
     }));
+  }
 
-    setSaved(false);
-  };
+  function updateDistrict(event) {
+    const districtId =
+      event.target.value;
 
-  const saveSettings = () => {
+    if (districtId === "All") {
+      setSettings((current) => ({
+        ...current,
+        defaultDistrictId: "All",
+        defaultDistrictName:
+          "All Karnataka",
+      }));
+
+      return;
+    }
+
+    const selected =
+      districts.find(
+        (district) =>
+          district.id === districtId,
+      );
+
+    setSettings((current) => ({
+      ...current,
+      defaultDistrictId: districtId,
+      defaultDistrictName:
+        selected?.name ??
+        "All Karnataka",
+    }));
+  }
+
+  function updateStatus(event) {
+    const statusId =
+      event.target.value;
+
+    if (statusId === "All") {
+      setSettings((current) => ({
+        ...current,
+        defaultStatusId: "All",
+        defaultStatusName:
+          "All statuses",
+      }));
+
+      return;
+    }
+
+    const selected =
+      statuses.find(
+        (status) =>
+          status.id === statusId,
+      );
+
+    setSettings((current) => ({
+      ...current,
+      defaultStatusId: statusId,
+      defaultStatusName:
+        selected?.name ??
+        "All statuses",
+    }));
+  }
+
+  function saveSettings() {
+    try {
+      localStorage.setItem(
+        SETTINGS_KEY,
+        JSON.stringify(settings),
+      );
+
+      setSavedSettings(settings);
+
+      applyInterfaceSettings(settings);
+
+      window.dispatchEvent(
+        new CustomEvent(
+          SETTINGS_EVENT,
+          {
+            detail: settings,
+          },
+        ),
+      );
+
+      if (
+        settings.auditLoggingEnabled
+      ) {
+        addAuditLog({
+          action:
+            "Updated application settings",
+          resource:
+            "Interface and dataset preferences",
+          category: "Settings",
+          status: "Success",
+        });
+      }
+
+      showMessage(
+        "Settings saved successfully.",
+      );
+    } catch (error) {
+      console.error(
+        "Unable to save settings:",
+        error,
+      );
+
+      showMessage(
+        "Settings could not be saved.",
+        "error",
+      );
+    }
+  }
+
+  function resetSettings() {
+    const resetValues = {
+      ...DEFAULT_SETTINGS,
+    };
+
+    setSettings(resetValues);
+    setSavedSettings(resetValues);
+
     localStorage.setItem(
-      "kavach-settings",
-      JSON.stringify(settings)
+      SETTINGS_KEY,
+      JSON.stringify(resetValues),
     );
 
-    setSaved(true);
+    applyInterfaceSettings(
+      resetValues,
+    );
 
-    window.setTimeout(() => {
-      setSaved(false);
-    }, 2500);
-  };
+    window.dispatchEvent(
+      new CustomEvent(
+        SETTINGS_EVENT,
+        {
+          detail: resetValues,
+        },
+      ),
+    );
 
-  const resetSettings = () => {
-    setSettings(defaultSettings);
-    localStorage.removeItem("kavach-settings");
-    setSaved(false);
-  };
+    addAuditLog({
+      action:
+        "Reset application settings",
+      resource:
+        "Default application preferences",
+      category: "Settings",
+      status: "Success",
+    });
+
+    showMessage(
+      "Settings reset to defaults.",
+    );
+  }
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#020817]">
       <PageHeader
-        icon={SettingsIcon}
+        icon={Database}
         title="Settings"
         description="Configure interface, alerts, security and dataset preferences"
         action={
-          <button
-            type="button"
-            onClick={saveSettings}
-            className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-500"
-          >
-            <Save size={17} />
-            Save settings
-          </button>
+          <div className="flex gap-3">
+            <button
+              type="button"
+              onClick={resetSettings}
+              className="flex items-center gap-2 rounded-xl border border-slate-700 bg-[#071225] px-4 py-2.5 text-sm font-medium text-slate-300 transition hover:border-blue-500 hover:text-white"
+            >
+              <RotateCcw size={17} />
+              Reset
+            </button>
+
+            <button
+              type="button"
+              disabled={!hasChanges}
+              onClick={saveSettings}
+              className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Save size={17} />
+              Save settings
+            </button>
+          </div>
         }
       />
 
-      <main className="min-h-0 flex-1 overflow-y-auto p-5 lg:p-6">
-        {saved && (
-          <div className="mb-5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-300">
-            Settings saved successfully.
+      <main className="min-h-0 flex-1 overflow-y-auto p-5">
+        {message && (
+          <div
+            className={`mb-5 rounded-xl border px-4 py-3 text-sm ${
+              messageType === "error"
+                ? "border-red-500/30 bg-red-500/10 text-red-300"
+                : "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
+            }`}
+          >
+            {message}
           </div>
         )}
 
@@ -106,52 +384,79 @@ function Settings() {
             title="Language and display"
             description="Configure the dashboard interface."
           >
-            <SelectSetting
-              label="Default language"
-              value={settings.language}
-              onChange={(value) =>
-                updateSetting("language", value)
-              }
-              options={[
-                "English",
-                "Kannada",
-                "English + Kannada",
-              ]}
-            />
+            <SettingField label="Default language">
+              <select
+                value={settings.language}
+                onChange={(event) =>
+                  updateSetting(
+                    "language",
+                    event.target.value,
+                  )
+                }
+                className="settings-select"
+              >
+                <option value="English">
+                  English
+                </option>
 
-            <SelectSetting
-              label="Default date range"
-              value={settings.dateRange}
-              onChange={(value) =>
-                updateSetting("dateRange", value)
-              }
-              options={[
-                {
-                  label: "Last 30 days",
-                  value: "1",
-                },
-                {
-                  label: "Last 6 months",
-                  value: "6",
-                },
-                {
-                  label: "Last 12 months",
-                  value: "12",
-                },
-                {
-                  label: "All records",
-                  value: "all",
-                },
-              ]}
-            />
+                <option value="ಕನ್ನಡ">
+                  ಕನ್ನಡ
+                </option>
 
-            <ToggleSetting
-              icon={Moon}
-              label="Compact interface"
+                <option value="English + ಕನ್ನಡ">
+                  English + ಕನ್ನಡ
+                </option>
+              </select>
+            </SettingField>
+
+            <SettingField label="Default date range">
+              <select
+                value={settings.dateRange}
+                onChange={(event) =>
+                  updateSetting(
+                    "dateRange",
+                    event.target.value,
+                  )
+                }
+                className="settings-select"
+              >
+                <option value="Last 7 days">
+                  Last 7 days
+                </option>
+
+                <option value="Last 30 days">
+                  Last 30 days
+                </option>
+
+                <option value="Last 3 months">
+                  Last 3 months
+                </option>
+
+                <option value="Last 6 months">
+                  Last 6 months
+                </option>
+
+                <option value="Last 12 months">
+                  Last 12 months
+                </option>
+
+                <option value="All time">
+                  All time
+                </option>
+              </select>
+            </SettingField>
+
+            <ToggleRow
+              title="Compact interface"
               description="Reduce spacing and card sizes."
-              checked={settings.compactMode}
+              checked={
+                settings.compactInterface
+              }
               onChange={(checked) =>
-                updateSetting("compactMode", checked)
+                updateSetting(
+                  "compactInterface",
+                  checked,
+                )
               }
             />
           </SettingsCard>
@@ -161,49 +466,71 @@ function Settings() {
             title="Notifications and alerts"
             description="Control intelligence notifications."
           >
-            <ToggleSetting
-              label="Enable notifications"
+            <ToggleRow
+              title="Enable notifications"
               description="Show system and intelligence notifications."
-              checked={settings.notifications}
+              checked={
+                settings.notificationsEnabled
+              }
               onChange={(checked) =>
-                updateSetting("notifications", checked)
+                updateSetting(
+                  "notificationsEnabled",
+                  checked,
+                )
               }
             />
 
-            <ToggleSetting
-              label="Critical crime alerts"
+            <ToggleRow
+              title="Critical crime alerts"
               description="Notify when a critical risk pattern is detected."
-              checked={settings.criticalAlerts}
+              checked={
+                settings.criticalAlertsEnabled
+              }
+              disabled={
+                !settings.notificationsEnabled
+              }
               onChange={(checked) =>
-                updateSetting("criticalAlerts", checked)
+                updateSetting(
+                  "criticalAlertsEnabled",
+                  checked,
+                )
               }
             />
 
-            <SelectSetting
-              label="Automatic refresh interval"
-              value={settings.autoRefresh}
-              onChange={(value) =>
-                updateSetting("autoRefresh", value)
-              }
-              options={[
-                {
-                  label: "Every 5 minutes",
-                  value: "5",
-                },
-                {
-                  label: "Every 15 minutes",
-                  value: "15",
-                },
-                {
-                  label: "Every 30 minutes",
-                  value: "30",
-                },
-                {
-                  label: "Manual refresh",
-                  value: "manual",
-                },
-              ]}
-            />
+            <SettingField label="Automatic refresh interval">
+              <select
+                value={
+                  settings.refreshInterval
+                }
+                onChange={(event) =>
+                  updateSetting(
+                    "refreshInterval",
+                    event.target.value,
+                  )
+                }
+                className="settings-select"
+              >
+                <option value="Manual">
+                  Manual
+                </option>
+
+                <option value="Every 1 minute">
+                  Every 1 minute
+                </option>
+
+                <option value="Every 5 minutes">
+                  Every 5 minutes
+                </option>
+
+                <option value="Every 15 minutes">
+                  Every 15 minutes
+                </option>
+
+                <option value="Every 30 minutes">
+                  Every 30 minutes
+                </option>
+              </select>
+            </SettingField>
           </SettingsCard>
 
           <SettingsCard
@@ -211,36 +538,63 @@ function Settings() {
             title="Privacy and security"
             description="Configure access and accountability."
           >
-            <ToggleSetting
-              icon={ShieldCheck}
-              label="Audit logging"
+            <ToggleRow
+              title="Audit logging"
               description="Record searches, reports and sensitive data access."
-              checked={settings.auditLogging}
-              onChange={(checked) =>
-                updateSetting("auditLogging", checked)
+              checked={
+                settings.auditLoggingEnabled
               }
-            />
-
-            <ToggleSetting
-              label="Show sensitive information"
-              description="Display full victim and accused information where authorised."
-              checked={settings.showSensitiveData}
               onChange={(checked) =>
                 updateSetting(
-                  "showSensitiveData",
-                  checked
+                  "auditLoggingEnabled",
+                  checked,
                 )
               }
             />
 
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
-              <p className="text-sm font-semibold text-amber-300">
-                Restricted information
+            <SettingField label="Session timeout">
+              <select
+                value={settings.sessionTimeout}
+                onChange={(event) =>
+                  updateSetting(
+                    "sessionTimeout",
+                    event.target.value,
+                  )
+                }
+                className="settings-select"
+              >
+                <option value="15 minutes">
+                  15 minutes
+                </option>
+
+                <option value="30 minutes">
+                  30 minutes
+                </option>
+
+                <option value="1 hour">
+                  1 hour
+                </option>
+
+                <option value="2 hours">
+                  2 hours
+                </option>
+
+                <option value="Never">
+                  Never
+                </option>
+              </select>
+            </SettingField>
+
+            <div className="rounded-xl border border-blue-500/30 bg-blue-500/10 p-4">
+              <p className="text-sm font-semibold text-blue-300">
+                Security notice
               </p>
 
-              <p className="mt-2 text-xs leading-5 text-slate-300">
-                Sensitive information should only be available to
-                authorised personnel with a valid investigative need.
+              <p className="mt-2 text-xs leading-5 text-slate-400">
+                Changes to audit logging and
+                session controls are saved
+                locally for this demonstration
+                dashboard.
               </p>
             </div>
           </SettingsCard>
@@ -250,41 +604,76 @@ function Settings() {
             title="Dataset preferences"
             description="Control default dataset filters."
           >
-            <SelectSetting
-              label="Default district"
-              value={settings.defaultDistrict}
-              onChange={(value) =>
-                updateSetting("defaultDistrict", value)
-              }
-              options={[
-                "All Karnataka",
-                "Bengaluru Urban",
-                "Mysuru",
-                "Mangaluru",
-                "Hubballi-Dharwad",
-              ]}
-            />
+            <SettingField label="Default district">
+              <select
+                value={
+                  settings.defaultDistrictId
+                }
+                disabled={loadingLookups}
+                onChange={updateDistrict}
+                className="settings-select"
+              >
+                <option value="All">
+                  All Karnataka
+                </option>
 
-            <ReadOnlySetting
-              label="Dataset source"
-              value="Karnataka FIR Intelligence Dataset"
-            />
+                {districts.map(
+                  (district) => (
+                    <option
+                      key={district.id}
+                      value={district.id}
+                    >
+                      {district.name}
+                    </option>
+                  ),
+                )}
+              </select>
+            </SettingField>
 
-            <ReadOnlySetting
-              label="Connection status"
-              value="Frontend demonstration data"
-            />
+            <SettingField label="Default case status">
+              <select
+                value={
+                  settings.defaultStatusId
+                }
+                disabled={loadingLookups}
+                onChange={updateStatus}
+                className="settings-select"
+              >
+                <option value="All">
+                  All statuses
+                </option>
+
+                {statuses.map(
+                  (status) => (
+                    <option
+                      key={status.id}
+                      value={status.id}
+                    >
+                      {status.name}
+                    </option>
+                  ),
+                )}
+              </select>
+            </SettingField>
+
+            <div className="rounded-xl bg-[#0b1930] p-4">
+              <p className="text-xs text-slate-500">
+                Current preference
+              </p>
+
+              <p className="mt-2 text-sm font-semibold text-white">
+                {
+                  settings.defaultDistrictName
+                }
+              </p>
+
+              <p className="mt-1 text-xs text-slate-400">
+                {
+                  settings.defaultStatusName
+                }
+              </p>
+            </div>
           </SettingsCard>
-        </div>
-
-        <div className="mt-5 flex justify-end">
-          <button
-            type="button"
-            onClick={resetSettings}
-            className="rounded-xl border border-red-500/30 px-4 py-2.5 text-sm font-medium text-red-400 hover:bg-red-500/10"
-          >
-            Reset to defaults
-          </button>
         </div>
       </main>
     </div>
@@ -299,13 +688,15 @@ function SettingsCard({
 }) {
   return (
     <section className="rounded-2xl border border-slate-700 bg-[#071225] p-5">
-      <div className="flex items-start gap-3">
-        <div className="rounded-xl bg-blue-500/10 p-3 text-blue-400">
-          <Icon size={21} />
+      <div className="flex items-start gap-4">
+        <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
+          <Icon size={22} />
         </div>
 
         <div>
-          <h2 className="font-semibold text-white">{title}</h2>
+          <h2 className="font-semibold text-white">
+            {title}
+          </h2>
 
           <p className="mt-1 text-sm text-slate-500">
             {description}
@@ -313,40 +704,70 @@ function SettingsCard({
         </div>
       </div>
 
-      <div className="mt-6 space-y-4">{children}</div>
+      <div className="mt-6 space-y-4">
+        {children}
+      </div>
     </section>
   );
 }
 
-function ToggleSetting({
+function SettingField({
   label,
+  children,
+}) {
+  return (
+    <label className="block">
+      <span className="mb-2 block text-sm font-semibold text-slate-300">
+        {label}
+      </span>
+
+      {children}
+    </label>
+  );
+}
+
+function ToggleRow({
+  title,
   description,
   checked,
+  disabled = false,
   onChange,
 }) {
   return (
-    <div className="flex items-center justify-between gap-5 rounded-xl bg-[#0b1930] p-4">
+    <div
+      className={`flex items-center justify-between gap-5 rounded-xl bg-[#0b1930] p-4 ${
+        disabled ? "opacity-50" : ""
+      }`}
+    >
       <div>
-        <p className="text-sm font-medium text-white">
-          {label}
+        <p className="text-sm font-semibold text-white">
+          {title}
         </p>
 
-        <p className="mt-1 text-xs leading-5 text-slate-500">
+        <p className="mt-1 text-xs text-slate-500">
           {description}
         </p>
       </div>
 
       <button
         type="button"
-        onClick={() => onChange(!checked)}
+        role="switch"
+        aria-checked={checked}
+        disabled={disabled}
+        onClick={() =>
+          onChange(!checked)
+        }
         className={`relative h-6 w-11 shrink-0 rounded-full transition ${
-          checked ? "bg-blue-600" : "bg-slate-700"
-        }`}
-        aria-pressed={checked}
+          checked
+            ? "bg-blue-600"
+            : "bg-slate-600"
+        } disabled:cursor-not-allowed`}
       >
         <span
-          className={`absolute top-1 h-4 w-4 rounded-full bg-white transition ${
-            checked ? "left-6" : "left-1"
+          className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-all ${
+            checked
+              ? "left-6"
+              : "left-1"
           }`}
         />
       </button>
@@ -354,50 +775,84 @@ function ToggleSetting({
   );
 }
 
-function SelectSetting({
-  label,
-  value,
-  onChange,
-  options,
-}) {
-  return (
-    <label className="block">
-      <span className="text-sm font-medium text-slate-300">
-        {label}
-      </span>
+function normalizeDistricts(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
 
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className="mt-2 w-full rounded-xl border border-slate-700 bg-[#061124] px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
-      >
-        {options.map((option) => {
-          const optionValue =
-            typeof option === "string" ? option : option.value;
+  return value
+    .map((district, index) => ({
+      id: String(
+        district.districtId ??
+          district.DistrictID ??
+          district.id ??
+          index,
+      ),
 
-          const optionLabel =
-            typeof option === "string" ? option : option.label;
-
-          return (
-            <option key={optionValue} value={optionValue}>
-              {optionLabel}
-            </option>
-          );
-        })}
-      </select>
-    </label>
-  );
+      name:
+        district.districtName ??
+        district.DistrictName ??
+        district.name ??
+        "Unknown",
+    }))
+    .filter(
+      (district) =>
+        district.id &&
+        district.name !== "Unknown",
+    )
+    .sort((first, second) =>
+      first.name.localeCompare(
+        second.name,
+      ),
+    );
 }
 
-function ReadOnlySetting({ label, value }) {
-  return (
-    <div className="flex justify-between gap-5 rounded-xl bg-[#0b1930] p-4">
-      <span className="text-sm text-slate-400">{label}</span>
-      <span className="text-right text-sm font-medium text-white">
-        {value}
-      </span>
-    </div>
+function normalizeStatuses(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((status, index) => ({
+      id: String(
+        status.statusId ??
+          status.CaseStatusID ??
+          status.id ??
+          index,
+      ),
+
+      name:
+        status.statusName ??
+        status.CaseStatusName ??
+        status.name ??
+        status.LookupValue ??
+        "Unknown",
+    }))
+    .filter(
+      (status) =>
+        status.id &&
+        status.name !== "Unknown",
+    )
+    .sort((first, second) =>
+      first.name.localeCompare(
+        second.name,
+      ),
+    );
+}
+
+function applyInterfaceSettings(settings) {
+  document.documentElement.classList.toggle(
+    "kavach-compact",
+    Boolean(
+      settings.compactInterface,
+    ),
   );
+
+  document.documentElement.dataset.language =
+    settings.language;
+
+  document.documentElement.dataset.dateRange =
+    settings.dateRange;
 }
 
 export default Settings;

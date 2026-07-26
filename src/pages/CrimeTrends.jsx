@@ -22,48 +22,119 @@ import { api } from "../services/api";
 
 function CrimeTrends() {
   const {
-    data: dashboardData,
+    data: dashboardResponse,
     loading: dashboardLoading,
     error: dashboardError,
   } = useApi(() => api.dashboard(), []);
 
   const {
-    data: trendsData,
+    data: trendsResponse,
     loading: trendsLoading,
     error: trendsError,
   } = useApi(() => api.crimeTrends(), []);
 
-  const totalCases =
-    dashboardData?.kpis?.totalCases ?? 0;
+  const dashboard =
+    dashboardResponse?.data ??
+    dashboardResponse ??
+    {};
 
-  const solvedCases =
-    dashboardData?.kpis?.chargesheetedCases ?? 0;
+  const trends =
+    trendsResponse?.data ??
+    trendsResponse ??
+    {};
 
-  const unresolvedCases = Math.max(
-    totalCases - solvedCases,
+  const casesByStatus = normalizeArray(
+    dashboard.casesByStatus ??
+      dashboard.statusDistribution,
+  );
+
+  const monthlyCrimeTrend = normalizeArray(
+    trends.monthlyTrend ??
+      dashboard.monthlyTrend,
+  )
+    .map((item) => ({
+      month:
+        item.month ??
+        item.period ??
+        item.date ??
+        "Unknown",
+
+      cases: toNumber(
+        item.count ??
+          item.cases ??
+          item.value,
+      ),
+    }))
+    .sort((first, second) =>
+      String(first.month).localeCompare(
+        String(second.month),
+      ),
+    );
+
+  const crimeCategoryData = normalizeArray(
+    trends.crimeTypes ??
+      dashboard.topCrimeTypes ??
+      dashboard.categoryDistribution,
+  )
+    .map((item) => ({
+      name:
+        item.crimeHeadName ??
+        item.name ??
+        item.category ??
+        "Unknown",
+
+      value: toNumber(
+        item.count ??
+          item.value ??
+          item.totalCases,
+      ),
+    }))
+    .filter((item) => item.value > 0)
+    .sort(
+      (first, second) =>
+        second.value - first.value,
+    );
+
+  const totalCases = toNumber(
+    dashboard?.kpis?.totalCases ??
+      dashboard.totalCases,
+  );
+
+  const unresolvedCases = casesByStatus
+    .filter((item) =>
+      isUnresolvedStatus(
+        item.statusName ??
+          item.name ??
+          item.status,
+      ),
+    )
+    .reduce(
+      (sum, item) =>
+        sum +
+        toNumber(
+          item.count ??
+            item.value ??
+            item.totalCases,
+        ),
+      0,
+    );
+
+  const solvedCases = Math.max(
+    totalCases - unresolvedCases,
     0,
   );
 
-  const solvedPercentage = totalCases
-    ? ((solvedCases / totalCases) * 100).toFixed(1)
-    : "0.0";
+  const solvedPercentage =
+    calculatePercentage(
+      solvedCases,
+      totalCases,
+    );
 
-  const unresolvedPercentage = totalCases
-    ? ((unresolvedCases / totalCases) * 100).toFixed(1)
-    : "0.0";
-
-  const monthlyCrimeTrend =
-    trendsData?.monthlyTrend?.map((item) => ({
-      month: item.month,
-      cases: item.count,
-      solved: 0,
-    })) ?? [];
-
-  const crimeCategoryData =
-    trendsData?.crimeTypes?.map((item) => ({
-      name: item.crimeHeadName,
-      value: item.count,
-    })) ?? [];
+  const unresolvedPercentage =
+    calculatePercentage(
+      unresolvedCases,
+      totalCases,
+    );
 
   const loading =
     dashboardLoading || trendsLoading;
@@ -82,7 +153,7 @@ function CrimeTrends() {
       <main className="min-h-0 flex-1 overflow-y-auto p-5">
         {error && (
           <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-            {error}
+            {String(error)}
           </div>
         )}
 
@@ -92,9 +163,13 @@ function CrimeTrends() {
             value={
               loading
                 ? "..."
-                : totalCases.toLocaleString()
+                : formatNumber(totalCases)
             }
-            change="Live dataset"
+            change={
+              loading
+                ? "Loading dataset..."
+                : "Live dataset"
+            }
             icon={TrendingUp}
           />
 
@@ -103,9 +178,13 @@ function CrimeTrends() {
             value={
               loading
                 ? "..."
-                : solvedCases.toLocaleString()
+                : formatNumber(solvedCases)
             }
-            change={`${solvedPercentage}% of total cases`}
+            change={
+              loading
+                ? "Calculating..."
+                : `${solvedPercentage}% of total cases`
+            }
             icon={TrendingUp}
           />
 
@@ -114,30 +193,33 @@ function CrimeTrends() {
             value={
               loading
                 ? "..."
-                : unresolvedCases.toLocaleString()
+                : formatNumber(
+                    unresolvedCases,
+                  )
             }
-            change={`${unresolvedPercentage}% of total cases`}
+            change={
+              loading
+                ? "Calculating..."
+                : `${unresolvedPercentage}% of total cases`
+            }
             icon={TrendingDown}
           />
         </div>
 
         <div className="mt-5 grid gap-5 xl:grid-cols-2">
           <ChartCard title="Monthly case trend">
-            {trendsLoading ? (
-              <div className="flex h-80 items-center justify-center">
-                <p className="text-sm text-slate-500">
-                  Loading monthly case trend...
-                </p>
-              </div>
+            {loading ? (
+              <ChartLoading />
             ) : monthlyCrimeTrend.length === 0 ? (
-              <div className="flex h-80 items-center justify-center">
-                <p className="text-sm text-slate-500">
-                  No monthly trend data available
-                </p>
-              </div>
+              <NoChartData />
             ) : (
-              <ResponsiveContainer width="100%" height={320}>
-                <AreaChart data={monthlyCrimeTrend}>
+              <ResponsiveContainer
+                width="100%"
+                height={320}
+              >
+                <AreaChart
+                  data={monthlyCrimeTrend}
+                >
                   <CartesianGrid
                     strokeDasharray="3 3"
                     stroke="#253247"
@@ -146,18 +228,41 @@ function CrimeTrends() {
                   <XAxis
                     dataKey="month"
                     stroke="#94a3b8"
+                    minTickGap={25}
+                    tick={{
+                      fontSize: 11,
+                    }}
                   />
 
-                  <YAxis stroke="#94a3b8" />
+                  <YAxis
+                    stroke="#94a3b8"
+                    tick={{
+                      fontSize: 11,
+                    }}
+                  />
 
-                  <Tooltip />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: "#071225",
+                      border:
+                        "1px solid #334155",
+                      borderRadius: "12px",
+                      color: "#ffffff",
+                    }}
+                    formatter={(value) => [
+                      formatNumber(value),
+                      "Cases",
+                    ]}
+                  />
 
                   <Area
                     type="monotone"
                     dataKey="cases"
+                    name="Registered cases"
                     stroke="#3b82f6"
                     fill="#3b82f6"
                     fillOpacity={0.2}
+                    strokeWidth={2}
                   />
                 </AreaChart>
               </ResponsiveContainer>
@@ -165,21 +270,25 @@ function CrimeTrends() {
           </ChartCard>
 
           <ChartCard title="Cases by crime category">
-            {trendsLoading ? (
-              <div className="flex h-80 items-center justify-center">
-                <p className="text-sm text-slate-500">
-                  Loading crime categories...
-                </p>
-              </div>
-            ) : crimeCategoryData.length === 0 ? (
-              <div className="flex h-80 items-center justify-center">
-                <p className="text-sm text-slate-500">
-                  No crime category data available
-                </p>
-              </div>
+            {loading ? (
+              <ChartLoading />
+            ) : crimeCategoryData.length ===
+              0 ? (
+              <NoChartData />
             ) : (
-              <ResponsiveContainer width="100%" height={320}>
-                <BarChart data={crimeCategoryData}>
+              <ResponsiveContainer
+                width="100%"
+                height={320}
+              >
+                <BarChart
+                  data={crimeCategoryData}
+                  margin={{
+                    top: 10,
+                    right: 10,
+                    left: 0,
+                    bottom: 65,
+                  }}
+                >
                   <CartesianGrid
                     strokeDasharray="3 3"
                     stroke="#253247"
@@ -189,17 +298,41 @@ function CrimeTrends() {
                     dataKey="name"
                     stroke="#94a3b8"
                     interval={0}
-                    angle={-20}
+                    angle={-22}
                     textAnchor="end"
-                    height={70}
+                    tick={{
+                      fontSize: 11,
+                    }}
                   />
 
-                  <YAxis stroke="#94a3b8" />
+                  <YAxis
+                    stroke="#94a3b8"
+                    tick={{
+                      fontSize: 11,
+                    }}
+                  />
 
-                  <Tooltip />
+                  <Tooltip
+                    cursor={{
+                      fill:
+                        "rgba(59, 130, 246, 0.06)",
+                    }}
+                    contentStyle={{
+                      backgroundColor: "#071225",
+                      border:
+                        "1px solid #334155",
+                      borderRadius: "12px",
+                      color: "#ffffff",
+                    }}
+                    formatter={(value) => [
+                      formatNumber(value),
+                      "Cases",
+                    ]}
+                  />
 
                   <Bar
                     dataKey="value"
+                    name="Registered cases"
                     fill="#3b82f6"
                     radius={[7, 7, 0, 0]}
                   />
@@ -208,12 +341,72 @@ function CrimeTrends() {
             )}
           </ChartCard>
         </div>
+
+        <div className="mt-5 rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3">
+          <p className="text-xs leading-5 text-slate-400">
+            Crime volumes, category totals and case
+            resolution figures are calculated from
+            the loaded synthetic FIR dataset. A case
+            is treated as unresolved when its status
+            is Under Investigation or Undetected.
+          </p>
+        </div>
       </main>
     </div>
   );
 }
 
-function Metric({ title, value, change, icon: Icon }) {
+function isUnresolvedStatus(value) {
+  const status = String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+  return (
+    status.includes(
+      "under investigation",
+    ) ||
+    status.includes("undetected") ||
+    status.includes("unresolved") ||
+    status.includes("pending")
+  );
+}
+
+function normalizeArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function toNumber(value) {
+  const number = Number(value);
+
+  return Number.isFinite(number)
+    ? number
+    : 0;
+}
+
+function formatNumber(value) {
+  return toNumber(value).toLocaleString(
+    "en-IN",
+  );
+}
+
+function calculatePercentage(value, total) {
+  if (!total) {
+    return "0.0";
+  }
+
+  return (
+    (toNumber(value) /
+      toNumber(total)) *
+    100
+  ).toFixed(1);
+}
+
+function Metric({
+  title,
+  value,
+  change,
+  icon: Icon,
+}) {
   return (
     <div className="rounded-2xl border border-slate-700 bg-[#071225] p-5">
       <div className="flex justify-between">
@@ -246,6 +439,26 @@ function ChartCard({ title, children }) {
 
       {children}
     </section>
+  );
+}
+
+function ChartLoading() {
+  return (
+    <div className="flex h-[320px] items-center justify-center">
+      <p className="text-sm text-slate-400">
+        Loading crime trend records...
+      </p>
+    </div>
+  );
+}
+
+function NoChartData() {
+  return (
+    <div className="flex h-[320px] items-center justify-center">
+      <p className="text-sm text-slate-400">
+        No dataset records available.
+      </p>
+    </div>
   );
 }
 

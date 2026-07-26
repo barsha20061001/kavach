@@ -1,4 +1,3 @@
-import { useMemo, useState } from "react";
 import {
   Bell,
   Check,
@@ -7,30 +6,181 @@ import {
   ShieldAlert,
 } from "lucide-react";
 
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+
+import { addAuditLog } from "../utils/auditLogger";
+
 import PageHeader from "../components/common/PageHeader";
-import { alertsData } from "../data/crimeData";
+import { api } from "../services/api";
+
+const STORAGE_KEY = "kavach-acknowledged-alerts";
 
 function Alerts() {
-  const [alerts, setAlerts] = useState(alertsData);
+  const [alerts, setAlerts] = useState([]);
   const [filter, setFilter] = useState("All");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+
+  const [acknowledgedIds, setAcknowledgedIds] =
+    useState(() => {
+      try {
+        const saved = JSON.parse(
+          localStorage.getItem(STORAGE_KEY) || "[]",
+        );
+
+        return Array.isArray(saved)
+          ? saved.map(String)
+          : [];
+      } catch {
+        return [];
+      }
+    });
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadAlerts() {
+      setLoading(true);
+      setError("");
+
+      try {
+        const response = await api.alerts();
+
+        if (!active) {
+          return;
+        }
+
+        const source =
+          response?.alerts ??
+          response?.data?.alerts ??
+          response?.data ??
+          response ??
+          [];
+
+        setAlerts(normalizeAlerts(source));
+      } catch (loadError) {
+        console.error(
+          "Unable to load intelligence alerts:",
+          loadError,
+        );
+
+        if (!active) {
+          return;
+        }
+
+        setAlerts([]);
+
+        setError(
+          loadError?.message ??
+            "Unable to load intelligence alerts.",
+        );
+      } finally {
+        if (active) {
+          setLoading(false);
+        }
+      }
+    }
+
+    loadAlerts();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  const alertsWithStatus = useMemo(() => {
+    return alerts.map((alert) => ({
+      ...alert,
+
+      status: acknowledgedIds.includes(
+        String(alert.id),
+      )
+        ? "Acknowledged"
+        : "New",
+    }));
+  }, [alerts, acknowledgedIds]);
+
+  const filterOptions = useMemo(() => {
+    const severities = [
+      ...new Set(
+        alertsWithStatus
+          .map((alert) => alert.severity)
+          .filter(Boolean),
+      ),
+    ];
+
+    return ["All", ...severities];
+  }, [alertsWithStatus]);
 
   const filteredAlerts = useMemo(() => {
-    if (filter === "All") return alerts;
+    if (filter === "All") {
+      return alertsWithStatus;
+    }
 
-    return alerts.filter((alert) => alert.type === filter);
-  }, [alerts, filter]);
+    return alertsWithStatus.filter(
+      (alert) => alert.severity === filter,
+    );
+  }, [alertsWithStatus, filter]);
+
+  const criticalCount = alertsWithStatus.filter(
+    (alert) => alert.severity === "Critical",
+  ).length;
+
+  const newCount = alertsWithStatus.filter(
+    (alert) => alert.status === "New",
+  ).length;
+
+  const acknowledgedCount =
+    alertsWithStatus.filter(
+      (alert) =>
+        alert.status === "Acknowledged",
+    ).length;
 
   const acknowledgeAlert = (id) => {
-    setAlerts((current) =>
-      current.map((alert) =>
-        alert.id === id
-          ? {
-              ...alert,
-              status: "Acknowledged",
-            }
-          : alert
-      )
-    );
+    const normalizedId = String(id);
+
+    
+
+    const selectedAlert = alerts.find(
+        (alert) => String(alert.id) === normalizedId,
+      );
+
+      setAcknowledgedIds((current) => {
+      if (current.includes(normalizedId)) {
+        return current;
+      }
+
+      window.dispatchEvent(
+     new CustomEvent(
+    "kavach-alert-status-updated",
+     ),
+     );
+
+      const updated = [
+        ...current,
+        normalizedId,
+      ];
+
+      localStorage.setItem(
+        STORAGE_KEY,
+        JSON.stringify(updated),
+      );
+
+      addAuditLog({
+         action: "Acknowledged intelligence alert",
+        resource:
+            selectedAlert?.title ??
+            normalizedId,
+        category: "Alert",
+        status: "Success",
+      });
+
+      return updated;
+    });
   };
 
   return (
@@ -38,117 +188,372 @@ function Alerts() {
       <PageHeader
         icon={Bell}
         title="Intelligence Alerts"
-        description="Review emerging hotspots, unusual patterns and operational warnings"
+        description="Review emerging hotspots, unusual crime patterns and operational warnings"
         action={
           <div className="flex items-center gap-2">
-            <Filter size={17} className="text-slate-400" />
+            <Filter
+              size={17}
+              className="text-slate-400"
+            />
 
             <select
               value={filter}
-              onChange={(event) => setFilter(event.target.value)}
-              className="rounded-xl border border-slate-700 bg-[#071225] px-4 py-2.5 text-sm text-white outline-none"
+              onChange={(event) =>
+                setFilter(event.target.value)
+              }
+              className="rounded-xl border border-slate-700 bg-[#071225] px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500"
             >
-              <option>All</option>
-              <option>Critical</option>
-              <option>High</option>
-              <option>Medium</option>
-              <option>Low</option>
+              {filterOptions.map((option) => (
+                <option
+                  key={option}
+                  value={option}
+                >
+                  {option === "All"
+                    ? "All alerts"
+                    : `${option} alerts`}
+                </option>
+              ))}
             </select>
           </div>
         }
       />
 
       <main className="min-h-0 flex-1 overflow-y-auto p-5">
+        {error && (
+          <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {error}
+          </div>
+        )}
+
         <div className="grid gap-4 md:grid-cols-4">
-          <Summary title="All alerts" value={alerts.length} />
+          <Summary
+            title="All alerts"
+            value={
+              loading
+                ? "..."
+                : formatNumber(
+                    alertsWithStatus.length,
+                  )
+            }
+          />
+
           <Summary
             title="Critical"
-            value={alerts.filter((alert) => alert.type === "Critical").length}
+            value={
+              loading
+                ? "..."
+                : formatNumber(criticalCount)
+            }
           />
+
           <Summary
             title="New"
-            value={alerts.filter((alert) => alert.status === "New").length}
+            value={
+              loading
+                ? "..."
+                : formatNumber(newCount)
+            }
           />
+
           <Summary
             title="Acknowledged"
             value={
-              alerts.filter(
-                (alert) => alert.status === "Acknowledged"
-              ).length
+              loading
+                ? "..."
+                : formatNumber(
+                    acknowledgedCount,
+                  )
             }
           />
         </div>
 
-        <div className="mt-5 space-y-4">
-          {filteredAlerts.map((alert) => (
-            <AlertCard
-              key={alert.id}
-              alert={alert}
-              onAcknowledge={() => acknowledgeAlert(alert.id)}
-            />
-          ))}
-        </div>
+        <section className="mt-5 overflow-hidden rounded-2xl border border-slate-700 bg-[#071225]">
+          <div className="flex items-center justify-between border-b border-slate-800 px-5 py-5">
+            <div>
+              <h2 className="font-semibold text-white">
+                Alert feed
+              </h2>
+
+              <p className="mt-1 text-sm text-slate-400">
+                Latest intelligence generated from
+                dataset records
+              </p>
+            </div>
+
+            <span className="rounded-full bg-blue-500/10 px-3 py-1 text-xs font-semibold text-blue-300">
+              {loading
+                ? "Loading..."
+                : `${formatNumber(
+                    filteredAlerts.length,
+                  )} shown`}
+            </span>
+          </div>
+
+          <div className="space-y-3 p-5">
+            {loading ? (
+              <div className="flex min-h-64 items-center justify-center">
+                <p className="text-sm text-slate-400">
+                  Generating intelligence alerts
+                  from the dataset...
+                </p>
+              </div>
+            ) : filteredAlerts.length === 0 ? (
+              <div className="flex min-h-64 items-center justify-center">
+                <div className="text-center">
+                  <Bell
+                    size={30}
+                    className="mx-auto text-slate-600"
+                  />
+
+                  <p className="mt-3 text-sm text-slate-400">
+                    No matching alerts are
+                    available.
+                  </p>
+                </div>
+              </div>
+            ) : (
+              filteredAlerts.map((alert) => (
+                <AlertCard
+                  key={alert.id}
+                  alert={alert}
+                  onAcknowledge={() =>
+                    acknowledgeAlert(alert.id)
+                  }
+                />
+              ))
+            )}
+          </div>
+        </section>
+
+        {!loading &&
+          alertsWithStatus.length > 0 && (
+            <div className="mt-5 rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3">
+              <p className="text-xs leading-5 text-slate-400">
+                Alerts are generated from district
+                case concentrations and repeat-person
+                patterns found in the loaded synthetic
+                FIR dataset. Severity values are
+                supplied by the backend alert-analysis
+                endpoint. Acknowledgement status is
+                stored locally for this demonstration.
+              </p>
+            </div>
+          )}
       </main>
     </div>
   );
 }
 
+function normalizeAlerts(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((alert, index) => ({
+      id: String(
+        alert.id ??
+          alert.alertId ??
+          `alert-${index}`,
+      ),
+
+      title:
+        alert.title ??
+        alert.alertTitle ??
+        "Dataset intelligence alert",
+
+      description:
+        alert.description ??
+        alert.message ??
+        "No additional dataset details are available.",
+
+      severity: normalizeSeverity(
+        alert.severity ??
+          alert.priority ??
+          alert.level,
+      ),
+
+      type: normalizeType(
+        alert.type ??
+          alert.category,
+      ),
+
+      district:
+        alert.districtName ??
+        alert.district ??
+        null,
+
+      caseCount: toNumber(
+        alert.caseCount ??
+          alert.count ??
+          alert.totalCases,
+      ),
+    }))
+    .sort(
+      (first, second) =>
+        severityRank(second.severity) -
+        severityRank(first.severity),
+    );
+}
+
+function normalizeSeverity(value) {
+  const severity = String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (
+    severity === "critical" ||
+    severity === "severe"
+  ) {
+    return "Critical";
+  }
+
+  if (severity === "high") {
+    return "High";
+  }
+
+  if (
+    severity === "medium" ||
+    severity === "moderate"
+  ) {
+    return "Medium";
+  }
+
+  return "Low";
+}
+
+function normalizeType(value) {
+  const type = String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (
+    type.includes("offender") ||
+    type.includes("person")
+  ) {
+    return "Repeat offender";
+  }
+
+  if (
+    type.includes("hotspot") ||
+    type.includes("district")
+  ) {
+    return "District hotspot";
+  }
+
+  return "Intelligence pattern";
+}
+
+function severityRank(severity) {
+  const ranks = {
+    Critical: 4,
+    High: 3,
+    Medium: 2,
+    Low: 1,
+  };
+
+  return ranks[severity] ?? 0;
+}
+
 function Summary({ title, value }) {
   return (
     <div className="rounded-2xl border border-slate-700 bg-[#071225] p-5">
-      <p className="text-sm text-slate-400">{title}</p>
-      <p className="mt-2 text-2xl font-bold text-white">{value}</p>
+      <p className="text-sm text-slate-400">
+        {title}
+      </p>
+
+      <p className="mt-2 text-2xl font-bold text-white">
+        {value}
+      </p>
     </div>
   );
 }
 
-function AlertCard({ alert, onAcknowledge }) {
-  const typeClasses = {
-    Critical: "border-red-500/40 bg-red-500/10 text-red-400",
-    High: "border-orange-500/40 bg-orange-500/10 text-orange-400",
-    Medium: "border-amber-500/40 bg-amber-500/10 text-amber-400",
-    Low: "border-blue-500/40 bg-blue-500/10 text-blue-400",
+function AlertCard({
+  alert,
+  onAcknowledge,
+}) {
+  const severityClasses = {
+    Critical:
+      "border-red-500/40 bg-red-500/10 text-red-400",
+
+    High:
+      "border-orange-500/40 bg-orange-500/10 text-orange-400",
+
+    Medium:
+      "border-amber-500/40 bg-amber-500/10 text-amber-400",
+
+    Low:
+      "border-blue-500/40 bg-blue-500/10 text-blue-400",
   };
 
+  const styles =
+    severityClasses[alert.severity] ??
+    severityClasses.Low;
+
   return (
-    <article className="rounded-2xl border border-slate-700 bg-[#071225] p-5">
+    <article className="rounded-2xl border border-slate-700 bg-[#0b1930] p-5">
       <div className="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
-        <div className="flex gap-4">
+        <div className="flex min-w-0 gap-4">
           <div
-            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border ${
-              typeClasses[alert.type]
-            }`}
+            className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border ${styles}`}
           >
-            {alert.type === "Critical" ? (
+            {alert.severity === "Critical" ||
+            alert.severity === "High" ? (
               <ShieldAlert size={22} />
             ) : (
               <CircleAlert size={22} />
             )}
           </div>
 
-          <div>
+          <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-3">
               <h2 className="font-semibold text-white">
                 {alert.title}
               </h2>
 
               <span
-                className={`rounded-full border px-3 py-1 text-xs font-semibold ${
-                  typeClasses[alert.type]
+                className={`rounded-full border px-3 py-1 text-xs font-semibold ${styles}`}
+              >
+                {alert.severity}
+              </span>
+
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                  alert.status === "New"
+                    ? "bg-blue-500/15 text-blue-300"
+                    : "bg-emerald-500/15 text-emerald-300"
                 }`}
               >
-                {alert.type}
+                {alert.status}
               </span>
             </div>
 
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
+            <p className="mt-3 max-w-4xl text-sm leading-6 text-slate-400">
               {alert.description}
             </p>
 
             <div className="mt-3 flex flex-wrap gap-4 text-xs text-slate-500">
-              <span>{alert.district}</span>
-              <span>{alert.time}</span>
-              <span>Status: {alert.status}</span>
+              <span>{alert.type}</span>
+
+              {alert.district && (
+                <span>
+                  District: {alert.district}
+                </span>
+              )}
+
+              {alert.caseCount > 0 && (
+                <span>
+                  Cases:{" "}
+                  {formatNumber(
+                    alert.caseCount,
+                  )}
+                </span>
+              )}
+
+              <span>
+                Status: {alert.status}
+              </span>
             </div>
           </div>
         </div>
@@ -157,7 +562,7 @@ function AlertCard({ alert, onAcknowledge }) {
           <button
             type="button"
             onClick={onAcknowledge}
-            className="flex shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-600 px-4 py-2.5 text-sm font-medium text-slate-200 hover:border-blue-500 hover:text-white"
+            className="flex shrink-0 items-center justify-center gap-2 rounded-xl border border-slate-600 px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:border-blue-500 hover:text-white"
           >
             <Check size={17} />
             Acknowledge
@@ -165,6 +570,20 @@ function AlertCard({ alert, onAcknowledge }) {
         )}
       </div>
     </article>
+  );
+}
+
+function toNumber(value) {
+  const number = Number(value);
+
+  return Number.isFinite(number)
+    ? number
+    : 0;
+}
+
+function formatNumber(value) {
+  return toNumber(value).toLocaleString(
+    "en-IN",
   );
 }
 

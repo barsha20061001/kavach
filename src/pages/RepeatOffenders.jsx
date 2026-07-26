@@ -12,71 +12,99 @@ function RepeatOffenders() {
     data,
     loading,
     error,
-  } = useApi(() => api.repeatOffenders(), []);
+  } = useApi(
+    () => api.repeatOffenders("?minCases=2"),
+    [],
+  );
 
   const offenders = useMemo(() => {
-    const repeatOffenders =
+    const source =
       data?.offenders ??
-      data?.repeatOffenders ??
+      data?.data?.offenders ??
       data?.data ??
+      data ??
       [];
 
-    const normalizedSearch = search.trim().toLowerCase();
+    if (!Array.isArray(source)) {
+      return [];
+    }
 
-    return repeatOffenders
-      .map((offender, offenderIndex) => {
-        const cases =
-          offender.cases ??
-          offender.firs ??
-          offender.caseRecords ??
-          [];
+    const normalizedSearch = search
+      .trim()
+      .toLowerCase();
 
-        const districts = Array.isArray(offender.districts)
-          ? offender.districts
-          : offender.districts
-            ? [offender.districts]
-            : [];
+    return source
+      .map((offender, index) => {
+        const caseCount = toNumber(
+          offender.caseCount ??
+            offender.totalCases ??
+            offender.linkedCases,
+        );
 
-        const sections = Array.isArray(offender.sections)
-          ? offender.sections
-          : offender.sections
-            ? [offender.sections]
-            : [];
+        const districts = normalizeStringArray(
+          offender.districts,
+        );
+
+        const crimeTypes = normalizeStringArray(
+          offender.crimeTypes ??
+            offender.categories,
+        );
 
         return {
           id:
-            offender.id ??
-            offender.accusedId ??
             offender.personId ??
-            `offender-${offenderIndex}`,
+            offender.PersonMasterID ??
+            offender.id ??
+            `offender-${index}`,
 
           name:
             offender.name ??
-            offender.accusedName ??
             offender.personName ??
-            "Unknown accused",
+            offender.AccusedName ??
+            "Unknown person",
 
-          caseCount:
-            offender.caseCount ??
-            offender.totalCases ??
-            offender.firCount ??
-            cases.length,
+          age:
+            offender.age ??
+            offender.AgeYear ??
+            "Not available",
+
+          caseCount,
 
           districts,
-          sections,
-          cases,
 
-          risk:
-            offender.risk ??
-            offender.riskLevel ??
-            offender.attentionLevel ??
-            "High attention",
+          crimeTypes,
+
+          preferredMO:
+            offender.preferredMO ??
+            offender.modusOperandi ??
+            "Not available",
+
+          lastKnownCaseDate:
+            offender.lastKnownCaseDate ??
+            offender.latestCaseDate ??
+            null,
         };
       })
-      .filter((offender) => offender.caseCount > 1)
-      .filter((offender) =>
-        offender.name.toLowerCase().includes(normalizedSearch),
-      )
+      .filter((offender) => offender.caseCount >= 2)
+      .filter((offender) => {
+        if (!normalizedSearch) {
+          return true;
+        }
+
+        const searchableText = [
+          offender.name,
+          offender.age,
+          offender.preferredMO,
+          ...offender.districts,
+          ...offender.crimeTypes,
+        ]
+          .join(" ")
+          .toLowerCase();
+
+        return searchableText.includes(
+          normalizedSearch,
+        );
+      })
       .sort(
         (first, second) =>
           second.caseCount - first.caseCount,
@@ -98,42 +126,42 @@ function RepeatOffenders() {
 
             <input
               value={search}
+              disabled={loading}
               onChange={(event) =>
                 setSearch(event.target.value)
               }
               placeholder="Search offender..."
-              className="rounded-xl border border-slate-700 bg-[#071225] py-2.5 pl-10 pr-4 text-sm text-white outline-none focus:border-blue-500"
+              className="rounded-xl border border-slate-700 bg-[#071225] py-2.5 pl-10 pr-4 text-sm text-white outline-none focus:border-blue-500 disabled:opacity-50"
             />
           </div>
         }
       />
 
       <main className="min-h-0 flex-1 overflow-y-auto p-5">
-        {loading ? (
-          <div className="flex min-h-[400px] items-center justify-center">
-            <p className="text-sm text-slate-400">
-              Loading repeat offenders...
-            </p>
+        {error && (
+          <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {String(error)}
           </div>
-        ) : error ? (
-          <div className="flex min-h-[400px] items-center justify-center">
-            <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-6 py-5 text-center">
-              <p className="font-semibold text-red-300">
-                Unable to load repeat offenders
-              </p>
+        )}
 
-              <p className="mt-2 text-sm text-slate-400">
-                {error}
-              </p>
-            </div>
+        {loading ? (
+          <div className="flex min-h-[500px] items-center justify-center rounded-2xl border border-slate-700 bg-[#071225]">
+            <p className="text-sm text-slate-400">
+              Analysing accused records for repeat-offender patterns...
+            </p>
           </div>
         ) : offenders.length === 0 ? (
-          <div className="flex min-h-[400px] items-center justify-center">
-            <p className="text-sm text-slate-400">
-              {search.trim()
-                ? "No repeat offender matches your search."
-                : "No repeat offenders found in the current dataset."}
-            </p>
+          <div className="flex min-h-[500px] items-center justify-center rounded-2xl border border-slate-700 bg-[#071225]">
+            <div className="text-center">
+              <UserRoundSearch
+                size={32}
+                className="mx-auto text-slate-600"
+              />
+
+              <p className="mt-3 text-sm text-slate-400">
+                No matching repeat offenders were found.
+              </p>
+            </div>
           </div>
         ) : (
           <div className="grid gap-5 lg:grid-cols-2">
@@ -142,7 +170,7 @@ function RepeatOffenders() {
                 key={offender.id}
                 className="rounded-2xl border border-slate-700 bg-[#071225] p-5"
               >
-                <div className="flex justify-between">
+                <div className="flex justify-between gap-4">
                   <div>
                     <h2 className="text-lg font-semibold text-white">
                       {offender.name}
@@ -150,12 +178,21 @@ function RepeatOffenders() {
 
                     <p className="mt-1 text-sm text-slate-400">
                       Accused in{" "}
-                      {offender.caseCount.toLocaleString()} FIR records
+                      {formatNumber(
+                        offender.caseCount,
+                      )}{" "}
+                      FIR records
                     </p>
                   </div>
 
-                  <span className="h-fit rounded-full bg-red-500/15 px-3 py-1 text-xs font-semibold text-red-400">
-                    {offender.risk}
+                  <span
+                    className={`h-fit rounded-full px-3 py-1 text-xs font-semibold ${getAttentionClass(
+                      offender.caseCount,
+                    )}`}
+                  >
+                    {getAttentionLabel(
+                      offender.caseCount,
+                    )}
                   </span>
                 </div>
 
@@ -163,117 +200,176 @@ function RepeatOffenders() {
                   <Info
                     label="Districts"
                     value={
-                      offender.districts.length > 0
-                        ? offender.districts
-                            .map((district) =>
-                              typeof district === "string"
-                                ? district
-                                : district.districtName ??
-                                  district.name ??
-                                  "Unknown",
-                            )
-                            .join(", ")
+                      offender.districts.length
+                        ? offender.districts.join(
+                            ", ",
+                          )
                         : "Not available"
                     }
                   />
 
                   <Info
-                    label="Sections"
+                    label="Crime categories"
                     value={
-                      offender.sections.length > 0
-                        ? offender.sections
-                            .map((section) =>
-                              typeof section === "string"
-                                ? section
-                                : section.sectionName ??
-                                  section.section ??
-                                  section.code ??
-                                  "Unknown",
-                            )
-                            .join(", ")
+                      offender.crimeTypes.length
+                        ? offender.crimeTypes.join(
+                            ", ",
+                          )
                         : "Not available"
                     }
                   />
                 </div>
 
                 <div className="mt-5 space-y-2">
-                  {offender.cases.length > 0 ? (
-                    offender.cases.map((crime, crimeIndex) => {
-                      const crimeId =
-                        crime.id ??
-                        crime.caseId ??
-                        crime.firId ??
-                        `${offender.id}-case-${crimeIndex}`;
+                  <div className="rounded-xl border border-slate-800 bg-[#0b1930] p-3">
+                    <p className="text-xs text-slate-500">
+                      Preferred modus operandi
+                    </p>
 
-                      const crimeHead =
-                        crime.crimeHead ??
-                        crime.crimeHeadName ??
-                        crime.offence ??
-                        "Unknown offence";
+                    <p className="mt-1 text-sm font-medium text-white">
+                      {offender.preferredMO}
+                    </p>
+                  </div>
 
-                      const crimeSubHead =
-                        crime.crimeSubHead ??
-                        crime.crimeSubHeadName ??
-                        crime.subCategory ??
-                        "";
-
-                      const caseNumber =
-                        crime.caseNo ??
-                        crime.crimeNo ??
-                        crime.firNo ??
-                        "Case number unavailable";
-
-                      const district =
-                        crime.district ??
-                        crime.districtName ??
-                        "Unknown district";
-
-                      const dateValue =
-                        crime.date ??
-                        crime.firDate ??
-                        crime.registeredDate ??
-                        "";
-
-                      const formattedDate = dateValue
-                        ? new Date(dateValue).toLocaleDateString(
-                            "en-GB",
-                          )
-                        : "Date unavailable";
-
-                      return (
-                        <div
-                          key={crimeId}
-                          className="rounded-xl border border-slate-800 bg-[#0b1930] p-3"
-                        >
-                          <p className="text-sm font-medium text-white">
-                            {crimeHead}
-                            {crimeSubHead
-                              ? ` — ${crimeSubHead}`
-                              : ""}
-                          </p>
-
-                          <p className="mt-1 text-xs text-slate-400">
-                            {caseNumber} · {district} ·{" "}
-                            {formattedDate}
-                          </p>
-                        </div>
-                      );
-                    })
-                  ) : (
+                  <div className="grid grid-cols-2 gap-2">
                     <div className="rounded-xl border border-slate-800 bg-[#0b1930] p-3">
-                      <p className="text-sm text-slate-400">
-                        Detailed FIR records are not available.
+                      <p className="text-xs text-slate-500">
+                        Age
+                      </p>
+
+                      <p className="mt-1 text-sm font-medium text-white">
+                        {formatAge(offender.age)}
                       </p>
                     </div>
-                  )}
+
+                    <div className="rounded-xl border border-slate-800 bg-[#0b1930] p-3">
+                      <p className="text-xs text-slate-500">
+                        Latest linked case
+                      </p>
+
+                      <p className="mt-1 text-sm font-medium text-white">
+                        {formatDate(
+                          offender.lastKnownCaseDate,
+                        )}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </article>
             ))}
           </div>
         )}
+
+        {!loading && offenders.length > 0 && (
+          <div className="mt-5 rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3">
+            <p className="text-xs leading-5 text-slate-400">
+              Repeat offenders are identified by grouping
+              accused records using PersonMasterID and
+              counting the number of distinct linked FIR
+              records. The attention level is an analytical
+              indicator based on linked-case count, not a
+              legal classification.
+            </p>
+          </div>
+        )}
       </main>
     </div>
   );
+}
+
+function normalizeStringArray(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      value
+        .map((item) => {
+          if (typeof item === "string") {
+            return item.trim();
+          }
+
+          return String(
+            item?.districtName ??
+              item?.crimeHeadName ??
+              item?.name ??
+              "",
+          ).trim();
+        })
+        .filter(Boolean),
+    ),
+  ];
+}
+
+function getAttentionLabel(caseCount) {
+  if (caseCount >= 8) {
+    return "High attention";
+  }
+
+  if (caseCount >= 5) {
+    return "Medium attention";
+  }
+
+  return "Monitor";
+}
+
+function getAttentionClass(caseCount) {
+  if (caseCount >= 8) {
+    return "bg-red-500/15 text-red-400";
+  }
+
+  if (caseCount >= 5) {
+    return "bg-amber-500/15 text-amber-400";
+  }
+
+  return "bg-blue-500/15 text-blue-400";
+}
+
+function formatAge(value) {
+  if (
+    value === null ||
+    value === undefined ||
+    value === ""
+  ) {
+    return "Not available";
+  }
+
+  const age = Number(value);
+
+  if (!Number.isFinite(age)) {
+    return String(value);
+  }
+
+  return `${age} years`;
+}
+
+function formatDate(value) {
+  if (!value) {
+    return "Not available";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return date.toLocaleDateString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function toNumber(value) {
+  const number = Number(value);
+
+  return Number.isFinite(number) ? number : 0;
+}
+
+function formatNumber(value) {
+  return toNumber(value).toLocaleString("en-IN");
 }
 
 function Info({ label, value }) {
@@ -283,7 +379,7 @@ function Info({ label, value }) {
         {label}
       </p>
 
-      <p className="mt-1 text-sm text-slate-200">
+      <p className="mt-1 break-words text-sm leading-5 text-slate-200">
         {value}
       </p>
     </div>

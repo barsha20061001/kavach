@@ -155,6 +155,59 @@ app.get("/api/dashboard", (req, res) => {
     .slice(0, 8)
     .map(enrichCase);
 
+
+const activeInvestigations = cases.filter(
+  c => String(c.CaseStatusID) === "1"
+).length;
+
+const heinousOffences = cases.filter(
+  c => String(c.GravityOffenceID) === "1"
+).length;
+
+res.json({
+  kpis: {
+    totalCases: cases.length,
+
+    activeInvestigations,
+
+    heinousOffences,
+
+    severeCases: heinousOffences,
+
+    arrestLinkedCases: cases.filter(
+      c => arrests.has(String(c.CaseMasterID))
+    ).length,
+
+    chargesheetedCases: cases.filter(
+      c => chargesheets.has(String(c.CaseMasterID))
+    ).length,
+
+    districtsCovered: new Set(
+      cases.map(caseDistrictId).filter(Boolean)
+    ).size
+  },
+
+  casesByStatus: topEntries(statusCounts, 10).map(x => ({
+    statusId: x.id,
+    statusName: index.statuses.get(x.id)?.CaseStatusName || "Unknown",
+    count: x.count
+  })),
+
+  topCrimeTypes: topEntries(headCounts, 8).map(x => ({
+    crimeHeadId: x.id,
+    crimeHeadName: index.heads.get(x.id)?.CrimeGroupName || "Unknown",
+    count: x.count
+  })),
+
+  topDistricts: topEntries(districtCounts, 10).map(x => ({
+    districtId: x.id,
+    districtName: index.districts.get(x.id)?.DistrictName || "Unknown",
+    count: x.count
+  })),
+
+  recentCases
+});  
+
   res.json({
     kpis: {
       totalCases: cases.length,
@@ -214,16 +267,18 @@ app.get("/api/hotspots", (req, res) => {
     .map(enrichCase);
 
   const points = cases.map(c => ({
-    caseId: c.CaseMasterID,
-    crimeNo: c.CrimeNo,
-    latitude: n(c.latitude),
-    longitude: n(c.longitude),
-    districtId: c.districtId,
-    districtName: c.districtName,
-    crimeHeadName: c.crimeHeadName,
-    gravityName: c.gravityName,
-    date: c.CrimeRegisteredDate
-  }));
+  caseId: c.CaseMasterID,
+  crimeNo: c.CrimeNo,
+  latitude: n(c.latitude),
+  longitude: n(c.longitude),
+  districtId: c.districtId,
+  districtName: c.districtName,
+  crimeHeadId: c.CrimeMajorHeadID,
+  crimeHeadName: c.crimeHeadName,
+  gravityOffenceId: c.GravityOffenceID,
+  gravityName: c.gravityName,
+  date: c.CrimeRegisteredDate
+}));
 
   const districtCounts = groupCount(cases, c => c.districtId);
   const clusters = topEntries(districtCounts, 31).map(x => {
@@ -344,22 +399,68 @@ app.get("/api/predictive", (req, res) => {
     m.set(month, (m.get(month) || 0) + 1);
   }
 
-  const predictions = [...byDistrict.entries()].map(([districtId, months]) => {
-    const values = [...months.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([, v]) => v);
+const rawPredictions = [...byDistrict.entries()]
+  .map(([districtId, months]) => {
+    const values = [...months.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([, value]) => value);
+
     const recent = values.slice(-3);
     const previous = values.slice(-6, -3);
-    const forecast = Math.round(recent.reduce((a, b) => a + b, 0) / Math.max(1, recent.length));
-    const previousAvg = previous.reduce((a, b) => a + b, 0) / Math.max(1, previous.length);
-    const changePercent = previousAvg ? Math.round(((forecast - previousAvg) / previousAvg) * 100) : 0;
+
+    const forecast = Math.round(
+      recent.reduce((sum, value) => sum + value, 0) /
+        Math.max(1, recent.length)
+    );
+
+    const previousAvg =
+      previous.reduce((sum, value) => sum + value, 0) /
+      Math.max(1, previous.length);
+
+    const changePercent = previousAvg
+      ? Math.round(((forecast - previousAvg) / previousAvg) * 100)
+      : 0;
 
     return {
       districtId,
-      districtName: index.districts.get(districtId)?.DistrictName || "Unknown",
+      districtName:
+        index.districts.get(districtId)?.DistrictName || "Unknown",
       predictedNextMonth: forecast,
       changePercent,
-      risk: forecast >= 12 ? "high" : forecast >= 8 ? "medium" : "low"
     };
-  }).sort((a, b) => b.predictedNextMonth - a.predictedNextMonth);
+  })
+  .sort(
+    (a, b) =>
+      b.predictedNextMonth - a.predictedNextMonth
+  );
+
+const predictedValues = rawPredictions
+  .map((item) => item.predictedNextMonth)
+  .filter(Number.isFinite)
+  .sort((a, b) => a - b);
+
+const highThreshold =
+  predictedValues[
+    Math.floor(predictedValues.length * 0.75)
+  ] ?? 0;
+
+const mediumThreshold =
+  predictedValues[
+    Math.floor(predictedValues.length * 0.5)
+  ] ?? 0;
+
+const predictions = rawPredictions.map((item) => ({
+  ...item,
+
+  risk:
+    item.predictedNextMonth >= highThreshold &&
+    item.predictedNextMonth > 0
+      ? "high"
+      : item.predictedNextMonth >= mediumThreshold &&
+          item.predictedNextMonth > 0
+        ? "medium"
+        : "low",
+}));
 
   res.json({
     model: "Three-month moving-average demonstration model",
@@ -430,50 +531,175 @@ app.get("/api/alerts", (_req, res) => {
   const repeatPersons = topEntries(groupCount(db.accused, a => a.PersonMasterID || a.PersonID), 10)
     .filter(x => x.count >= 3);
 
-  const alerts = [
-    ...districtCounts.slice(0, 5).map((x, i) => ({
+  const highestDistrictCount =
+  districtCounts[0]?.count || 0;
+
+const highestRepeatCount =
+  repeatPersons[0]?.count || 0;
+
+const alerts = [
+  ...districtCounts.slice(0, 5).map((x, i) => {
+    const relativeShare =
+      highestDistrictCount > 0
+        ? x.count / highestDistrictCount
+        : 0;
+
+    const severity =
+      i === 0 && relativeShare >= 0.9
+        ? "critical"
+        : relativeShare >= 0.6
+          ? "high"
+          : "medium";
+
+    return {
       id: `district-${x.id}`,
-      severity: i < 2 ? "high" : "medium",
-      title: `High case concentration in ${index.districts.get(x.id)?.DistrictName || "district"}`,
+      severity,
+
+      title: `High case concentration in ${
+        index.districts.get(x.id)?.DistrictName ||
+        "district"
+      }`,
+
       description: `${x.count} registered cases are present in the current dataset.`,
-      type: "hotspot"
-    })),
-    ...repeatPersons.slice(0, 5).map(x => ({
+
+      type: "hotspot",
+
+      districtName:
+        index.districts.get(x.id)?.DistrictName ||
+        "Unknown",
+
+      caseCount: x.count
+    };
+  }),
+
+  ...repeatPersons.slice(0, 5).map((x, i) => {
+    const relativeShare =
+      highestRepeatCount > 0
+        ? x.count / highestRepeatCount
+        : 0;
+
+    const severity =
+      i === 0 && relativeShare >= 0.9
+        ? "critical"
+        : relativeShare >= 0.6
+          ? "high"
+          : "medium";
+
+    return {
       id: `person-${x.id}`,
-      severity: x.count >= 5 ? "high" : "medium",
+      severity,
+
       title: "Repeat-offender pattern detected",
-      description: `${index.persons.get(x.id)?.PersonName || "A person"} is linked to ${x.count} accused records.`,
-      type: "offender"
-    }))
-  ];
+
+      description: `${
+        index.persons.get(x.id)?.PersonName ||
+        "A person"
+      } is linked to ${x.count} accused records.`,
+
+      type: "offender",
+
+      caseCount: x.count
+    };
+  })
+];
 
   res.json({ alerts });
 });
 
 app.get("/api/search", (req, res) => {
-  const q = String(req.query.q || "").trim().toLowerCase();
-  if (!q) return res.json({ cases: [], people: [], districts: [] });
+  const q = String(req.query.q || "")
+    .trim()
+    .toLowerCase();
 
-  const cases = db.cases
-    .filter(c =>
-      [c.CrimeNo, c.CaseNo, c.BriefFacts, c.CaseMasterID]
-        .some(v => String(v || "").toLowerCase().includes(q))
-    )
-    .slice(0, 50)
-    .map(enrichCase);
+  /*
+   * Build dataset-grounded case records first.
+   * With an empty query, all CaseMaster records are returned.
+   */
+  const enrichedCases = db.cases.map(enrichCase);
 
-  const people = db.persons
-    .filter(p =>
-      [p.PersonName, p.PersonMasterID]
-        .some(v => String(v || "").toLowerCase().includes(q))
-    )
-    .slice(0, 50);
+  const cases = enrichedCases.filter((caseItem) => {
+    if (!q) {
+      return true;
+    }
 
-  const districts = db.districts
-    .filter(d => d.DistrictName.toLowerCase().includes(q))
-    .slice(0, 20);
+    const accusedNames = db.accused
+      .filter(
+        (accused) =>
+          String(accused.CaseMasterID) ===
+          String(caseItem.CaseMasterID)
+      )
+      .map((accused) => {
+        const personId = String(
+          accused.PersonMasterID ||
+            accused.PersonID ||
+            ""
+        );
 
-  res.json({ cases, people, districts });
+        return (
+          index.persons.get(personId)?.PersonName ||
+          accused.AccusedName ||
+          ""
+        );
+      });
+
+    const searchableValues = [
+      caseItem.CaseMasterID,
+      caseItem.CrimeNo,
+      caseItem.CaseNo,
+      caseItem.BriefFacts,
+      caseItem.CrimeRegisteredDate,
+
+      caseItem.districtName,
+      caseItem.policeStationName,
+      caseItem.unitName,
+
+      caseItem.crimeHeadName,
+      caseItem.crimeSubHeadName,
+
+      caseItem.statusName,
+      caseItem.gravityName,
+
+      ...accusedNames,
+    ];
+
+    return searchableValues.some((value) =>
+      String(value || "")
+        .toLowerCase()
+        .includes(q)
+    );
+  });
+
+  const people = q
+    ? db.persons
+        .filter((person) =>
+          [
+            person.PersonName,
+            person.PersonMasterID,
+          ].some((value) =>
+            String(value || "")
+              .toLowerCase()
+              .includes(q)
+          )
+        )
+        .slice(0, 50)
+    : [];
+
+  const districts = q
+    ? db.districts
+        .filter((district) =>
+          String(district.DistrictName || "")
+            .toLowerCase()
+            .includes(q)
+        )
+        .slice(0, 31)
+    : [];
+
+  res.json({
+    total: cases.length,
+    cases,
+    people,
+    districts,
+  });
 });
 
 app.post("/api/assistant", (req, res) => {
@@ -504,6 +730,86 @@ app.post("/api/assistant", (req, res) => {
     answer,
     note: "This endpoint is dataset-grounded and rule-based. Connect Gemini later without changing the frontend contract."
   });
+});
+
+app.get("/api/resources", (_req, res) => {
+  try {
+    const csvFiles = fs
+      .readdirSync(DATA_DIR)
+      .filter((fileName) =>
+        fileName.toLowerCase().endsWith(".csv"),
+      )
+      .sort((first, second) =>
+        first.localeCompare(second),
+      );
+
+    const tables = csvFiles.map((fileName) => {
+      const rows = readCsv(fileName);
+
+      const columns =
+        rows.length > 0
+          ? [
+              ...new Set(
+                rows.flatMap((row) =>
+                  Object.keys(row),
+                ),
+              ),
+            ]
+          : [];
+
+      const nonEmptyCounts = {};
+
+      columns.forEach((column) => {
+        nonEmptyCounts[column] = rows.filter(
+          (row) =>
+            row[column] !== undefined &&
+            row[column] !== null &&
+            String(row[column]).trim() !== "",
+        ).length;
+      });
+
+      return {
+        id: fileName.replace(/\.csv$/i, ""),
+        fileName,
+        tableName: fileName.replace(/\.csv$/i, ""),
+        recordCount: rows.length,
+        columnCount: columns.length,
+        columns,
+        nonEmptyCounts,
+      };
+    });
+
+    const totalRecords = tables.reduce(
+      (sum, table) => sum + table.recordCount,
+      0,
+    );
+
+    const totalColumns = tables.reduce(
+      (sum, table) => sum + table.columnCount,
+      0,
+    );
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+
+      dataset: {
+        name: "Karnataka FIR Synthetic Dataset",
+        dataDirectory: "backend/data",
+        tableCount: tables.length,
+        totalRecords,
+        totalColumns,
+      },
+
+      tables,
+    });
+  } catch (error) {
+    console.error("Resources endpoint error:", error);
+
+    res.status(500).json({
+      message: "Unable to inspect dataset resources",
+      error: error.message,
+    });
+  }
 });
 
 app.use((err, _req, res, _next) => {

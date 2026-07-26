@@ -22,127 +22,52 @@ import { api } from "../services/api";
 
 function PredictiveIntelligence() {
   const {
-    data,
+    data: predictiveResponse,
     loading,
     error,
   } = useApi(() => api.predictive(), []);
 
-  const predictions = (
-    data?.predictions ??
-    data?.forecast ??
-    data?.districtForecast ??
-    []
-  ).map((prediction, index) => {
-    const previousCases = Number(
-      prediction.previousCases ??
-        prediction.currentCases ??
-        prediction.historicalCases ??
-        prediction.actualCases ??
-        0,
-    );
+  const predictiveData =
+    predictiveResponse?.data ??
+    predictiveResponse ??
+    {};
 
-    const predictedCases = Number(
-      prediction.predictedCases ??
-        prediction.forecastCases ??
-        prediction.expectedCases ??
-        prediction.prediction ??
-        0,
-    );
+  const modelName =
+    predictiveData.model ??
+    "Dataset forecast model";
 
-    const calculatedChange = previousCases
-      ? ((predictedCases - previousCases) / previousCases) * 100
-      : 0;
-
-    const percentageChange = Number(
-      prediction.percentageChange ??
-        prediction.changePercentage ??
-        calculatedChange,
-    );
-
-    const riskScore = Number(
-      prediction.riskScore ??
-        prediction.risk ??
-        prediction.score ??
-        0,
-    );
-
-    const confidence = Number(
-      prediction.confidence ??
-        prediction.confidenceScore ??
-        data?.modelConfidence ??
-        0,
-    );
-
-    return {
-      id:
-        prediction.id ??
-        prediction.districtId ??
-        `prediction-${index}`,
-
-      district:
-        prediction.district ??
-        prediction.districtName ??
-        "Unknown district",
-
-      category:
-        prediction.category ??
-        prediction.crimeCategory ??
-        prediction.crimeHeadName ??
-        "All crime categories",
-
-      previousCases,
-      predictedCases,
-      riskScore,
-      confidence,
-      percentageChange,
-
-      trend:
-        prediction.trend ??
-        (predictedCases >= previousCases
-          ? "Increasing"
-          : "Decreasing"),
-    };
-  });
-
-  const modelConfidence = Number(
-    data?.modelConfidence ??
-      data?.confidence ??
-      (predictions.length
-        ? predictions.reduce(
-            (total, prediction) =>
-              total + prediction.confidence,
-            0,
-          ) / predictions.length
-        : 0),
+  const predictions = normalizePredictions(
+    predictiveData.predictions,
   );
 
   const highRiskDistricts = predictions.filter(
-    (prediction) => prediction.riskScore > 70,
+    (prediction) => prediction.risk === "high",
   ).length;
 
-  const totalPreviousCases = predictions.reduce(
-    (total, prediction) =>
-      total + prediction.previousCases,
-    0,
-  );
-
   const totalPredictedCases = predictions.reduce(
-    (total, prediction) =>
-      total + prediction.predictedCases,
+    (sum, prediction) =>
+      sum + prediction.predictedCases,
     0,
   );
 
-  const expectedCaseIncrease = totalPreviousCases
-    ? ((totalPredictedCases - totalPreviousCases) /
-        totalPreviousCases) *
-      100
-    : 0;
+  const totalPreviousCases = predictions.reduce(
+    (sum, prediction) =>
+      sum + prediction.previousCases,
+    0,
+  );
 
-  const highestRiskPrediction =
+  const expectedCaseChange =
+    calculatePercentageChange(
+      totalPredictedCases,
+      totalPreviousCases,
+    );
+
+  const highestForecastDistrict =
     predictions.length > 0
       ? [...predictions].sort(
           (first, second) =>
-            second.riskScore - first.riskScore,
+            second.predictedCases -
+            first.predictedCases,
         )[0]
       : null;
 
@@ -153,11 +78,8 @@ function PredictiveIntelligence() {
         title="Predictive Intelligence"
         description="Forecast crime patterns and identify emerging operational risks"
         action={
-          <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-xs font-semibold text-blue-300">
-            Model confidence:{" "}
-            {loading
-              ? "..."
-              : `${modelConfidence.toFixed(0)}%`}
+          <span className="max-w-72 truncate rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-2 text-xs font-semibold text-blue-300">
+            {loading ? "Loading model..." : modelName}
           </span>
         }
       />
@@ -165,7 +87,7 @@ function PredictiveIntelligence() {
       <main className="min-h-0 flex-1 overflow-y-auto p-5">
         {error && (
           <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-            {error}
+            {String(error)}
           </div>
         )}
 
@@ -175,34 +97,40 @@ function PredictiveIntelligence() {
             value={
               loading
                 ? "..."
-                : highRiskDistricts.toLocaleString()
+                : formatNumber(highRiskDistricts)
             }
-            description="Risk score above 70"
+            description="Classified as high risk by the forecast"
           />
 
           <Metric
-            title="Expected case increase"
+            title="Expected case change"
             value={
               loading
                 ? "..."
-                : `${expectedCaseIncrease >= 0 ? "+" : ""}${expectedCaseIncrease.toFixed(1)}%`
+                : formatSignedPercentage(
+                    expectedCaseChange,
+                  )
             }
-            description="Next 30-day period"
+            description="Predicted next month versus previous average"
           />
 
           <Metric
-            title="Highest-risk category"
+            title="Highest forecast district"
             value={
               loading
                 ? "..."
-                : highestRiskPrediction?.category ??
-                  "No data"
+                : highestForecastDistrict
+                  ? highestForecastDistrict.district
+                  : "No data"
             }
             description={
               loading
-                ? "Loading district data"
-                : highestRiskPrediction?.district ??
-                  "No district available"
+                ? "Loading district forecast..."
+                : highestForecastDistrict
+                  ? `${formatNumber(
+                      highestForecastDistrict.predictedCases,
+                    )} predicted cases next month`
+                  : "No forecast records available"
             }
           />
         </div>
@@ -215,26 +143,30 @@ function PredictiveIntelligence() {
               </h2>
 
               <p className="mt-1 text-sm text-slate-400">
-                Predicted case volume compared with previous records
+                Predicted monthly case volume compared
+                with the previous three-month average
               </p>
             </div>
           </div>
 
           {loading ? (
-            <div className="flex h-[340px] items-center justify-center">
-              <p className="text-sm text-slate-400">
-                Loading district risk forecast...
-              </p>
-            </div>
+            <ChartLoading />
           ) : predictions.length === 0 ? (
-            <div className="flex h-[340px] items-center justify-center">
-              <p className="text-sm text-slate-400">
-                No predictive data available.
-              </p>
-            </div>
+            <NoData />
           ) : (
-            <ResponsiveContainer width="100%" height={340}>
-              <BarChart data={predictions}>
+            <ResponsiveContainer
+              width="100%"
+              height={340}
+            >
+              <BarChart
+                data={predictions}
+                margin={{
+                  top: 10,
+                  right: 10,
+                  left: 0,
+                  bottom: 55,
+                }}
+              >
                 <CartesianGrid
                   strokeDasharray="3 3"
                   stroke="#253247"
@@ -243,34 +175,57 @@ function PredictiveIntelligence() {
                 <XAxis
                   dataKey="district"
                   stroke="#94a3b8"
+                  interval={0}
+                  angle={-20}
+                  textAnchor="end"
+                  tick={{
+                    fontSize: 10,
+                  }}
                 />
 
-                <YAxis stroke="#94a3b8" />
+                <YAxis
+                  stroke="#94a3b8"
+                  allowDecimals={false}
+                  tick={{
+                    fontSize: 11,
+                  }}
+                />
 
-                <Tooltip />
+                <Tooltip
+                  cursor={{
+                    fill:
+                      "rgba(59, 130, 246, 0.06)",
+                  }}
+                  contentStyle={{
+                    backgroundColor: "#071225",
+                    border: "1px solid #334155",
+                    borderRadius: "12px",
+                    color: "#ffffff",
+                  }}
+                  formatter={(value, name) => [
+                    formatNumber(value),
+                    name,
+                  ]}
+                />
 
                 <Bar
                   dataKey="previousCases"
                   fill="#475569"
-                  name="Previous cases"
+                  name="Previous monthly average"
                   radius={[5, 5, 0, 0]}
                 />
 
                 <Bar
                   dataKey="predictedCases"
-                  name="Predicted cases"
+                  name="Predicted next month"
                   radius={[5, 5, 0, 0]}
                 >
                   {predictions.map((prediction) => (
                     <Cell
                       key={prediction.id}
-                      fill={
-                        prediction.riskScore >= 75
-                          ? "#ef4444"
-                          : prediction.riskScore >= 55
-                            ? "#f59e0b"
-                            : "#3b82f6"
-                      }
+                      fill={getRiskColour(
+                        prediction.risk,
+                      )}
                     />
                   ))}
                 </Bar>
@@ -281,17 +236,10 @@ function PredictiveIntelligence() {
 
         <div className="mt-5 grid gap-4 lg:grid-cols-2">
           {loading ? (
-            <div className="col-span-full flex min-h-[220px] items-center justify-center">
-              <p className="text-sm text-slate-400">
-                Loading prediction details...
-              </p>
-            </div>
-          ) : predictions.length === 0 ? (
-            <div className="col-span-full flex min-h-[220px] items-center justify-center">
-              <p className="text-sm text-slate-400">
-                No district predictions are available.
-              </p>
-            </div>
+            <>
+              <PredictionLoading />
+              <PredictionLoading />
+            </>
           ) : (
             predictions.map((prediction) => (
               <PredictionCard
@@ -315,26 +263,136 @@ function PredictiveIntelligence() {
               </h3>
 
               <p className="mt-2 text-sm leading-6 text-slate-300">
-                Forecasts should support planning and resource allocation.
-                They must not be treated as evidence that a specific
-                individual will commit an offence.
+                Forecasts are calculated from historical
+                monthly FIR volumes using the model shown
+                above. They should support planning and
+                resource allocation and must not be treated
+                as evidence that a particular person will
+                commit an offence.
               </p>
             </div>
           </div>
+        </div>
+
+        <div className="mt-5 rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3">
+          <p className="text-xs leading-5 text-slate-400">
+            District forecasts are derived from
+            CrimeRegisteredDate records grouped by district.
+            Predicted next-month volume uses the recent
+            three-month average, while change is measured
+            against the preceding three-month average. The
+            underlying records are synthetic demonstration
+            data.
+          </p>
         </div>
       </main>
     </div>
   );
 }
 
-function Metric({ title, value, description }) {
+function normalizePredictions(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value
+    .map((prediction, index) => {
+      const predictedCases = toNumber(
+        prediction.predictedNextMonth ??
+          prediction.predictedCases ??
+          prediction.forecast,
+      );
+
+      const changePercent = toNumber(
+        prediction.changePercent ??
+          prediction.change ??
+          0,
+      );
+
+      return {
+        id:
+          prediction.districtId ??
+          prediction.id ??
+          `prediction-${index}`,
+
+        district:
+          prediction.districtName ??
+          prediction.district ??
+          prediction.name ??
+          "Unknown",
+
+        predictedCases,
+
+        previousCases:
+          derivePreviousAverage(
+            predictedCases,
+            changePercent,
+          ),
+
+        changePercent,
+
+        risk: normalizeRisk(prediction.risk),
+      };
+    })
+    .filter(
+      (prediction) =>
+        prediction.district !== "Unknown" ||
+        prediction.predictedCases > 0,
+    )
+    .sort(
+      (first, second) =>
+        second.predictedCases -
+        first.predictedCases,
+    );
+}
+
+function derivePreviousAverage(
+  predictedCases,
+  changePercent,
+) {
+  if (changePercent === -100) {
+    return 0;
+  }
+
+  const divisor =
+    1 + changePercent / 100;
+
+  if (!Number.isFinite(divisor) || divisor <= 0) {
+    return 0;
+  }
+
+  return Math.max(
+    0,
+    Math.round(predictedCases / divisor),
+  );
+}
+
+function calculatePercentageChange(
+  predicted,
+  previous,
+) {
+  if (!previous) {
+    return predicted > 0 ? 100 : 0;
+  }
+
+  return (
+    ((predicted - previous) / previous) *
+    100
+  );
+}
+
+function Metric({
+  title,
+  value,
+  description,
+}) {
   return (
     <div className="rounded-2xl border border-slate-700 bg-[#071225] p-5">
       <p className="text-sm text-slate-400">
         {title}
       </p>
 
-      <p className="mt-2 text-2xl font-bold text-white">
+      <p className="mt-2 break-words text-2xl font-bold text-white">
         {value}
       </p>
 
@@ -347,15 +405,14 @@ function Metric({ title, value, description }) {
 
 function PredictionCard({ prediction }) {
   const isIncreasing =
-    prediction.trend.toLowerCase() === "increasing" ||
-    prediction.predictedCases > prediction.previousCases;
+    prediction.changePercent > 0;
 
-  const riskClass =
-    prediction.riskScore >= 75
-      ? "bg-red-500/15 text-red-400"
-      : prediction.riskScore >= 55
-        ? "bg-amber-500/15 text-amber-400"
-        : "bg-blue-500/15 text-blue-400";
+  const isDecreasing =
+    prediction.changePercent < 0;
+
+  const riskClass = getRiskClass(
+    prediction.risk,
+  );
 
   return (
     <article className="rounded-2xl border border-slate-700 bg-[#071225] p-5">
@@ -366,31 +423,37 @@ function PredictionCard({ prediction }) {
           </h2>
 
           <p className="mt-1 text-sm text-slate-400">
-            {prediction.category}
+            Dataset-based monthly forecast
           </p>
         </div>
 
         <span
           className={`rounded-full px-3 py-1 text-xs font-semibold ${riskClass}`}
         >
-          Risk {prediction.riskScore.toFixed(0)}
+          {formatRisk(prediction.risk)} risk
         </span>
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-3">
         <DataBox
-          label="Predicted cases"
-          value={prediction.predictedCases.toLocaleString()}
+          label="Predicted next month"
+          value={formatNumber(
+            prediction.predictedCases,
+          )}
         />
 
         <DataBox
-          label="Previous cases"
-          value={prediction.previousCases.toLocaleString()}
+          label="Previous monthly average"
+          value={formatNumber(
+            prediction.previousCases,
+          )}
         />
 
         <DataBox
-          label="Confidence"
-          value={`${prediction.confidence.toFixed(0)}%`}
+          label="Forecast change"
+          value={formatSignedPercentage(
+            prediction.changePercent,
+          )}
         />
 
         <div className="rounded-xl bg-[#0b1930] p-3">
@@ -402,16 +465,26 @@ function PredictionCard({ prediction }) {
             className={`mt-1 flex items-center gap-2 text-sm font-semibold ${
               isIncreasing
                 ? "text-red-400"
-                : "text-emerald-400"
+                : isDecreasing
+                  ? "text-emerald-400"
+                  : "text-blue-400"
             }`}
           >
             {isIncreasing ? (
               <TrendingUp size={16} />
-            ) : (
+            ) : isDecreasing ? (
               <TrendingDown size={16} />
+            ) : (
+              <span className="text-base leading-none">
+                —
+              </span>
             )}
 
-            {prediction.trend}
+            {isIncreasing
+              ? "Increasing"
+              : isDecreasing
+                ? "Decreasing"
+                : "Stable"}
           </div>
         </div>
       </div>
@@ -428,6 +501,105 @@ function DataBox({ label, value }) {
 
       <p className="mt-1 text-sm font-semibold text-white">
         {value}
+      </p>
+    </div>
+  );
+}
+
+function normalizeRisk(value) {
+  const risk = String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (risk === "high") {
+    return "high";
+  }
+
+  if (risk === "medium") {
+    return "medium";
+  }
+
+  return "low";
+}
+
+function getRiskColour(risk) {
+  if (risk === "high") {
+    return "#ef4444";
+  }
+
+  if (risk === "medium") {
+    return "#f59e0b";
+  }
+
+  return "#3b82f6";
+}
+
+function getRiskClass(risk) {
+  if (risk === "high") {
+    return "bg-red-500/15 text-red-400";
+  }
+
+  if (risk === "medium") {
+    return "bg-amber-500/15 text-amber-400";
+  }
+
+  return "bg-blue-500/15 text-blue-400";
+}
+
+function formatRisk(risk) {
+  return (
+    risk.charAt(0).toUpperCase() +
+    risk.slice(1)
+  );
+}
+
+function formatSignedPercentage(value) {
+  const number = toNumber(value);
+
+  return `${
+    number > 0 ? "+" : ""
+  }${number.toFixed(1)}%`;
+}
+
+function formatNumber(value) {
+  return toNumber(value).toLocaleString(
+    "en-IN",
+  );
+}
+
+function toNumber(value) {
+  const number = Number(value);
+
+  return Number.isFinite(number)
+    ? number
+    : 0;
+}
+
+function ChartLoading() {
+  return (
+    <div className="flex h-[340px] items-center justify-center">
+      <p className="text-sm text-slate-400">
+        Calculating district forecasts...
+      </p>
+    </div>
+  );
+}
+
+function NoData() {
+  return (
+    <div className="flex h-[340px] items-center justify-center">
+      <p className="text-sm text-slate-400">
+        No forecast records are available.
+      </p>
+    </div>
+  );
+}
+
+function PredictionLoading() {
+  return (
+    <div className="flex min-h-48 items-center justify-center rounded-2xl border border-slate-700 bg-[#071225] p-5">
+      <p className="text-sm text-slate-400">
+        Loading district forecast...
       </p>
     </div>
   );

@@ -30,6 +30,7 @@ export const api = {
   districtAnalytics: districtId => request(`/district-analytics/${districtId}`),
   reports: (query = "") => request(`/reports${query}`),
   alerts: () => request("/alerts"),
+  resources: () => request("/resources"),
   search: q => request(`/search?q=${encodeURIComponent(q)}`),
   assistant: question =>
     request("/assistant", {

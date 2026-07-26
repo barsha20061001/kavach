@@ -1,20 +1,20 @@
-import { MapContainer, CircleMarker, Popup, TileLayer } from "react-leaflet";
-import { MapPinned, ShieldAlert } from "lucide-react";
+import { useEffect, useMemo } from "react";
+import {
+  CircleMarker,
+  MapContainer,
+  Popup,
+  TileLayer,
+  useMap,
+} from "react-leaflet";
+
+import {
+  MapPinned,
+  ShieldAlert,
+} from "lucide-react";
 
 import PageHeader from "../components/common/PageHeader";
 import { useApi } from "../hooks/useApi";
 import { api } from "../services/api";
-
-function isHighRiskIncident(crime) {
-  const gravity = String(crime?.gravityName || "").toLowerCase();
-
-  return (
-    gravity.includes("high") ||
-    gravity.includes("heinous") ||
-    gravity.includes("grave") ||
-    gravity.includes("serious")
-  );
-}
 
 function HotspotMap() {
   const {
@@ -23,46 +23,136 @@ function HotspotMap() {
     error,
   } = useApi(() => api.hotspots(), []);
 
-  const crimeCases = data?.points ?? [];
-  const hotspotClusters = data?.clusters ?? [];
+  const points = useMemo(() => {
+    const source =
+      data?.points ??
+      data?.data?.points ??
+      [];
 
-  const highRiskIncidents = crimeCases.filter(
-    isHighRiskIncident,
-  ).length;
+    if (!Array.isArray(source)) {
+      return [];
+    }
 
-  const districtsCovered = new Set(
-    crimeCases
-      .map((crime) => crime.districtId)
-      .filter(Boolean),
-  ).size;
+    return source
+      .map((point, index) => ({
+        id:
+          point.caseId ??
+          point.CaseMasterID ??
+          point.id ??
+          `point-${index}`,
 
-  const mostAffectedDistrict =
-    hotspotClusters.length > 0
-      ? [...hotspotClusters].sort(
-          (first, second) => second.count - first.count,
-        )[0]
-      : null;
+        crimeNo:
+          point.crimeNo ??
+          point.CrimeNo ??
+          "Not available",
 
-  const summaryItems = [
-    [
-      "High-risk incidents",
-      loading ? "..." : highRiskIncidents.toLocaleString(),
-    ],
-    [
-      "Mapped incidents",
-      loading ? "..." : crimeCases.length.toLocaleString(),
-    ],
-    [
-      "Districts covered",
-      loading ? "..." : districtsCovered.toLocaleString(),
-    ],
-    [
-      "Most affected",
-      loading
-        ? "..."
-        : mostAffectedDistrict?.districtName ?? "No data",
-    ],
-  ];
+        latitude: toNumber(
+          point.latitude ??
+            point.Latitude,
+        ),
+
+        longitude: toNumber(
+          point.longitude ??
+            point.Longitude,
+        ),
+
+        districtId:
+          point.districtId ??
+          point.DistrictID ??
+          "",
+
+        districtName:
+          point.districtName ??
+          point.DistrictName ??
+          "Unknown",
+
+        crimeHeadName:
+          point.crimeHeadName ??
+          point.CrimeGroupName ??
+          "Unknown",
+
+        gravityOffenceId:
+          point.gravityOffenceId ??
+          point.GravityOffenceID ??
+          null,
+
+        gravityName:
+          point.gravityName ??
+          point.LookupValue ??
+          "Unknown",
+
+        date:
+          point.date ??
+          point.CrimeRegisteredDate ??
+          null,
+      }))
+      .filter(
+        (point) =>
+          Number.isFinite(point.latitude) &&
+          Number.isFinite(point.longitude),
+      );
+  }, [data]);
+
+  const clusters = useMemo(() => {
+    const source =
+      data?.clusters ??
+      data?.data?.clusters ??
+      [];
+
+    if (!Array.isArray(source)) {
+      return [];
+    }
+
+    return source
+      .map((cluster, index) => ({
+        id:
+          cluster.districtId ??
+          cluster.DistrictID ??
+          `cluster-${index}`,
+
+        districtName:
+          cluster.districtName ??
+          cluster.DistrictName ??
+          "Unknown",
+
+        count: toNumber(
+          cluster.count ??
+            cluster.caseCount ??
+            cluster.totalCases,
+        ),
+
+        latitude: toNumber(
+          cluster.latitude ??
+            cluster.Latitude,
+        ),
+
+        longitude: toNumber(
+          cluster.longitude ??
+            cluster.Longitude,
+        ),
+
+        risk: normalizeRisk(cluster.risk),
+      }))
+      .filter(
+        (cluster) =>
+          Number.isFinite(cluster.latitude) &&
+          Number.isFinite(cluster.longitude),
+      )
+      .sort(
+        (first, second) =>
+          second.count - first.count,
+      );
+  }, [data]);
+
+  const highRiskIncidents = useMemo(() => {
+    return points.filter(isHeinousPoint).length;
+  }, [points]);
+
+  const mostAffected = clusters[0] ?? {
+    districtName: "No data",
+    count: 0,
+    risk: "low",
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#020817]">
@@ -77,29 +167,30 @@ function HotspotMap() {
           {loading ? (
             <div className="flex h-full min-h-[600px] items-center justify-center bg-[#071225]">
               <p className="text-sm text-slate-400">
-                Loading crime hotspot data...
+                Loading geospatial FIR records...
               </p>
             </div>
           ) : error ? (
-            <div className="flex h-full min-h-[600px] items-center justify-center bg-[#071225] px-6 text-center">
-              <div>
-                <ShieldAlert
-                  size={28}
-                  className="mx-auto text-red-400"
-                />
-
-                <p className="mt-3 text-sm font-medium text-red-300">
+            <div className="flex h-full min-h-[600px] items-center justify-center bg-[#071225] p-6">
+              <div className="text-center">
+                <p className="font-semibold text-red-300">
                   Unable to load hotspot data
                 </p>
 
-                <p className="mt-2 text-xs text-slate-500">
-                  {error}
+                <p className="mt-2 text-sm text-slate-400">
+                  {String(error)}
                 </p>
               </div>
             </div>
+          ) : clusters.length === 0 ? (
+            <div className="flex h-full min-h-[600px] items-center justify-center bg-[#071225]">
+              <p className="text-sm text-slate-400">
+                No mapped district records are available.
+              </p>
+            </div>
           ) : (
             <MapContainer
-              center={[14.5, 76.2]}
+              center={getMapCentre(clusters)}
               zoom={7}
               className="h-full min-h-[600px] w-full"
             >
@@ -108,62 +199,60 @@ function HotspotMap() {
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
               />
 
-              {crimeCases.map((crime) => {
-                const highRisk = isHighRiskIncident(crime);
+              <FitMapToClusters clusters={clusters} />
 
-                return (
-                  <CircleMarker
-                    key={crime.caseId}
-                    center={[
-                      crime.latitude,
-                      crime.longitude,
-                    ]}
-                    radius={highRisk ? 14 : 9}
-                    pathOptions={{
-                      color: highRisk
-                        ? "#ef4444"
-                        : "#3b82f6",
-                      fillColor: highRisk
-                        ? "#ef4444"
-                        : "#3b82f6",
-                      fillOpacity: 0.65,
-                      weight: 2,
-                    }}
-                  >
-                    <Popup>
-                      <div className="min-w-52">
-                        <strong>
-                          {crime.crimeHeadName || "Unknown offence"}
-                        </strong>
+              {clusters.map((cluster) => (
+                <CircleMarker
+                  key={cluster.id}
+                  center={[
+                    cluster.latitude,
+                    cluster.longitude,
+                  ]}
+                  radius={calculateRadius(
+                    cluster.count,
+                    clusters,
+                  )}
+                  pathOptions={{
+                    color: getRiskColour(
+                      cluster.risk,
+                    ),
+                    fillColor: getRiskColour(
+                      cluster.risk,
+                    ),
+                    fillOpacity: 0.72,
+                    weight: 2,
+                  }}
+                >
+                  <Popup>
+                    <div className="min-w-52">
+                      <strong>
+                        {cluster.districtName}
+                      </strong>
 
-                        <p>
-                          Crime number:{" "}
-                          {crime.crimeNo || "Not available"}
-                        </p>
+                      <p>
+                        Registered cases:{" "}
+                        {formatNumber(
+                          cluster.count,
+                        )}
+                      </p>
 
-                        <p>
-                          District:{" "}
-                          {crime.districtName || "Unknown"}
-                        </p>
+                      <p>
+                        Risk classification:{" "}
+                        {formatRisk(cluster.risk)}
+                      </p>
 
-                        <p>
-                          Severity:{" "}
-                          {crime.gravityName || "Not specified"}
-                        </p>
-
-                        <p>
-                          Date:{" "}
-                          {crime.date
-                            ? new Date(
-                                crime.date,
-                              ).toLocaleDateString("en-GB")
-                            : "Not available"}
-                        </p>
-                      </div>
-                    </Popup>
-                  </CircleMarker>
-                );
-              })}
+                      <p>
+                        Share of mapped cases:{" "}
+                        {calculateShare(
+                          cluster.count,
+                          points.length,
+                        )}
+                        %
+                      </p>
+                    </div>
+                  </Popup>
+                </CircleMarker>
+              ))}
             </MapContainer>
           )}
         </div>
@@ -175,7 +264,38 @@ function HotspotMap() {
             </h2>
 
             <div className="mt-5 space-y-3">
-              {summaryItems.map(([label, value]) => (
+              {[
+                [
+                  "High-risk incidents",
+                  loading
+                    ? "..."
+                    : formatNumber(
+                        highRiskIncidents,
+                      ),
+                ],
+                [
+                  "Mapped incidents",
+                  loading
+                    ? "..."
+                    : formatNumber(
+                        points.length,
+                      ),
+                ],
+                [
+                  "Districts covered",
+                  loading
+                    ? "..."
+                    : formatNumber(
+                        clusters.length,
+                      ),
+                ],
+                [
+                  "Most affected",
+                  loading
+                    ? "..."
+                    : mostAffected.districtName,
+                ],
+              ].map(([label, value]) => (
                 <div
                   key={label}
                   className="flex justify-between gap-4 rounded-xl bg-[#0b1930] px-4 py-3"
@@ -184,7 +304,7 @@ function HotspotMap() {
                     {label}
                   </span>
 
-                  <span className="max-w-36 truncate text-right text-sm font-semibold text-white">
+                  <span className="text-right text-sm font-semibold text-white">
                     {value}
                   </span>
                 </div>
@@ -204,20 +324,199 @@ function HotspotMap() {
                   Emerging hotspot
                 </h3>
 
-                <p className="mt-2 text-sm leading-6 text-slate-400">
-                  {loading
-                    ? "Analysing mapped incidents..."
-                    : mostAffectedDistrict
-                      ? `${mostAffectedDistrict.districtName} has the highest concentration of mapped incidents, with ${mostAffectedDistrict.count.toLocaleString()} cases in the current dataset.`
-                      : "No hotspot information is currently available."}
-                </p>
+                {loading ? (
+                  <p className="mt-2 text-sm leading-6 text-slate-400">
+                    Analysing district concentrations...
+                  </p>
+                ) : clusters.length === 0 ? (
+                  <p className="mt-2 text-sm leading-6 text-slate-400">
+                    No hotspot concentration could be calculated.
+                  </p>
+                ) : (
+                  <p className="mt-2 text-sm leading-6 text-slate-400">
+                    {mostAffected.districtName} has
+                    the highest concentration of
+                    mapped incidents, with{" "}
+                    {formatNumber(
+                      mostAffected.count,
+                    )}{" "}
+                    registered cases in the current
+                    dataset.
+                  </p>
+                )}
               </div>
             </div>
+          </div>
+
+          <div className="rounded-2xl border border-blue-500/20 bg-blue-500/5 p-4">
+            <p className="text-xs leading-5 text-slate-400">
+              District markers are calculated from
+              CaseMaster records linked to police
+              stations and districts. Marker size
+              represents relative case concentration.
+              The data is synthetic and does not
+              represent real police incidents.
+            </p>
           </div>
         </aside>
       </div>
     </div>
   );
+}
+
+function FitMapToClusters({ clusters }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!clusters.length) {
+      return;
+    }
+
+    const bounds = clusters.map((cluster) => [
+      cluster.latitude,
+      cluster.longitude,
+    ]);
+
+    map.fitBounds(bounds, {
+      padding: [30, 30],
+      maxZoom: 8,
+    });
+  }, [clusters, map]);
+
+  return null;
+}
+
+function isHeinousPoint(point) {
+  if (
+    point.gravityOffenceId !== null &&
+    point.gravityOffenceId !== undefined &&
+    point.gravityOffenceId !== ""
+  ) {
+    return (
+      String(point.gravityOffenceId) === "1"
+    );
+  }
+
+  const gravity = String(
+    point.gravityName ?? "",
+  ).toLowerCase();
+
+  return (
+    gravity.includes("heinous") ||
+    gravity.includes("high") ||
+    gravity.includes("severe")
+  );
+}
+
+function normalizeRisk(value) {
+  const risk = String(
+    value ?? "",
+  ).toLowerCase();
+
+  if (risk === "high") {
+    return "high";
+  }
+
+  if (risk === "medium") {
+    return "medium";
+  }
+
+  return "low";
+}
+
+function getRiskColour(risk) {
+  if (risk === "high") {
+    return "#ef4444";
+  }
+
+  if (risk === "medium") {
+    return "#f59e0b";
+  }
+
+  return "#3b82f6";
+}
+
+function formatRisk(risk) {
+  return (
+    risk.charAt(0).toUpperCase() +
+    risk.slice(1)
+  );
+}
+
+function calculateRadius(count, clusters) {
+  if (!clusters.length) {
+    return 8;
+  }
+
+  const maximum = Math.max(
+    ...clusters.map((cluster) =>
+      toNumber(cluster.count),
+    ),
+    1,
+  );
+
+  const minimum = Math.min(
+    ...clusters.map((cluster) =>
+      toNumber(cluster.count),
+    ),
+  );
+
+  if (maximum === minimum) {
+    return 14;
+  }
+
+  const normalized =
+    (toNumber(count) - minimum) /
+    (maximum - minimum);
+
+  return 8 + normalized * 12;
+}
+
+function getMapCentre(clusters) {
+  if (!clusters.length) {
+    return [14.5, 76.2];
+  }
+
+  const latitude =
+    clusters.reduce(
+      (sum, cluster) =>
+        sum + cluster.latitude,
+      0,
+    ) / clusters.length;
+
+  const longitude =
+    clusters.reduce(
+      (sum, cluster) =>
+        sum + cluster.longitude,
+      0,
+    ) / clusters.length;
+
+  return [latitude, longitude];
+}
+
+function calculateShare(value, total) {
+  if (!total) {
+    return "0.0";
+  }
+
+  return (
+    (toNumber(value) / total) *
+    100
+  ).toFixed(1);
+}
+
+function formatNumber(value) {
+  return toNumber(value).toLocaleString(
+    "en-IN",
+  );
+}
+
+function toNumber(value) {
+  const number = Number(value);
+
+  return Number.isFinite(number)
+    ? number
+    : 0;
 }
 
 export default HotspotMap;

@@ -1,102 +1,190 @@
 import {
   BookOpen,
   Database,
-  ExternalLink,
-  FileCode2,
+  Download,
+  FileJson,
   FileText,
   Network,
+  Search,
   ShieldCheck,
+  Table2,
+  X,
 } from "lucide-react";
 
-import PageHeader from "../components/common/PageHeader";
+import { useMemo, useState } from "react";
 
-const schemaResources = [
+import PageHeader from "../components/common/PageHeader";
+import { useApi } from "../hooks/useApi";
+import { api } from "../services/api";
+
+const resourceGroups = [
   {
-    title: "CaseMaster",
+    id: "cases",
+    title: "Case and Investigation",
     description:
-      "Primary FIR table containing crime number, registration date, police station, crime heads, status and court details.",
+      "Primary FIR, status, court, chargesheet and modus-operandi records.",
     icon: FileText,
-    fields: [
-      "CaseMasterID",
-      "CrimeNo",
-      "CaseNo",
-      "CrimeRegisteredDate",
-      "PoliceStationID",
-      "CrimeMajorHeadID",
-      "CrimeMinorHeadID",
-      "CaseStatusID",
-    ],
+    match:
+      /case|status|chargesheet|court|modus|crimehead|crimesubhead|gravity/i,
   },
   {
+    id: "accused",
     title: "Accused and Arrest",
     description:
-      "Accused records linked to FIRs, together with arrest or surrender information.",
+      "Accused-person, arrest, surrender and person-master records.",
     icon: ShieldCheck,
-    fields: [
-      "AccusedMasterID",
-      "AccusedName",
-      "AgeYear",
-      "GenderID",
-      "ArrestSurrenderDate",
-      "IOID",
-    ],
+    match: /accused|arrest|surrender|personmaster/i,
   },
   {
+    id: "victims",
     title: "Victim and Complainant",
     description:
-      "Case-linked victim and complainant demographic information.",
+      "Case-linked victim and complainant records.",
     icon: BookOpen,
-    fields: [
-      "VictimMasterID",
-      "VictimName",
-      "ComplainantID",
-      "ComplainantName",
-      "AgeYear",
-      "GenderID",
-    ],
+    match: /victim|complainant/i,
   },
   {
-    title: "Act and Sections",
+    id: "legal",
+    title: "Acts and Sections",
     description:
-      "Legal acts and sections associated with each FIR.",
-    icon: FileCode2,
-    fields: [
-      "ActCode",
-      "ActDescription",
-      "SectionCode",
-      "SectionDescription",
-      "CaseMasterID",
-    ],
+      "Legal acts, sections and case-level legal associations.",
+    icon: FileJson,
+    match: /act|section/i,
   },
   {
+    id: "location",
     title: "Location and Organisation",
     description:
-      "Police stations, districts, states and incident coordinates.",
+      "District, state, unit, employee and organisational records.",
     icon: Database,
-    fields: [
-      "PoliceStationID",
-      "DistrictID",
-      "StateID",
-      "latitude",
-      "longitude",
-      "UnitID",
-    ],
+    match:
+      /district|state|unit|employee|rank|designation/i,
   },
   {
-    title: "Relationship Model",
+    id: "supporting",
+    title: "Supporting Masters",
     description:
-      "Connections between cases, accused persons, victims, legal sections, officers and districts.",
+      "Lookup and supporting reference tables used throughout the dataset.",
     icon: Network,
-    fields: [
-      "CaseMaster → Accused",
-      "CaseMaster → Victim",
-      "CaseMaster → ActSection",
-      "CaseMaster → Police Station",
-    ],
+    match: /.*/,
   },
 ];
 
 function Resources() {
+  const {
+    data: response,
+    loading,
+    error,
+  } = useApi(() => api.resources(), []);
+
+  const [search, setSearch] = useState("");
+  const [selectedTable, setSelectedTable] =
+    useState(null);
+  const [showSummary, setShowSummary] =
+    useState(false);
+
+  const data = response?.data ?? response ?? {};
+  const dataset = data.dataset ?? {};
+
+  const tables = useMemo(
+    () =>
+      Array.isArray(data.tables)
+        ? data.tables
+        : [],
+    [data.tables],
+  );
+
+  const filteredTables = useMemo(() => {
+    const normalized = search
+      .trim()
+      .toLowerCase();
+
+    if (!normalized) {
+      return tables;
+    }
+
+    return tables.filter((table) =>
+      [
+        table.tableName,
+        table.fileName,
+        ...(table.columns ?? []),
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalized),
+    );
+  }, [tables, search]);
+
+  const groupedResources = useMemo(() => {
+    const assigned = new Set();
+
+    return resourceGroups
+      .map((group) => {
+        const groupTables =
+          filteredTables.filter((table) => {
+            if (assigned.has(table.id)) {
+              return false;
+            }
+
+            if (
+              group.id === "supporting" ||
+              group.match.test(table.tableName)
+            ) {
+              assigned.add(table.id);
+              return true;
+            }
+
+            return false;
+          });
+
+        return {
+          ...group,
+          tables: groupTables,
+          recordCount: groupTables.reduce(
+            (sum, table) =>
+              sum +
+              toNumber(table.recordCount),
+            0,
+          ),
+        };
+      })
+      .filter(
+        (group) =>
+          group.tables.length > 0,
+      );
+  }, [filteredTables]);
+
+  const downloadSchemaJson = () => {
+    downloadTextFile(
+      JSON.stringify(data, null, 2),
+      `kavach-dataset-schema-${currentDate()}.json`,
+      "application/json;charset=utf-8",
+    );
+  };
+
+  const downloadSchemaCsv = () => {
+    const rows = tables.flatMap((table) =>
+      (table.columns ?? []).map(
+        (column, index) => ({
+          table_name: table.tableName,
+          file_name: table.fileName,
+          record_count: table.recordCount,
+          column_order: index + 1,
+          column_name: column,
+          non_empty_values:
+            table.nonEmptyCounts?.[
+              column
+            ] ?? 0,
+        }),
+      ),
+    );
+
+    downloadCsv(
+      rows,
+      `kavach-dataset-schema-${currentDate()}.csv`,
+    );
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#020817]">
       <PageHeader
@@ -105,149 +193,753 @@ function Resources() {
         description="Dataset documentation, schema references and platform guidance"
       />
 
-      <main className="min-h-0 flex-1 overflow-y-auto p-5 lg:p-6">
-        <section className="rounded-2xl border border-blue-500/30 bg-blue-500/10 p-5">
-          <h2 className="font-semibold text-blue-300">
-            Karnataka FIR Dataset
-          </h2>
+      <main className="min-h-0 flex-1 overflow-y-auto p-5">
+        {error && (
+          <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {String(error)}
+          </div>
+        )}
 
-          <p className="mt-2 max-w-4xl text-sm leading-6 text-slate-300">
-            Kavach AI uses structured FIR records connecting cases,
-            police stations, districts, accused persons, victims,
-            legal sections, courts and investigation details.
-          </p>
+        <section className="overflow-hidden rounded-2xl border border-blue-500/30 bg-[#071225]">
+          <div className="grid gap-6 p-6 xl:grid-cols-[minmax(0,1fr)_auto] xl:items-center">
+            <div className="min-w-0">
+              <div className="flex items-center gap-3">
+                <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
+                  <Database size={23} />
+                </div>
 
-          <div className="mt-4 flex flex-wrap gap-3">
-            <ResourceButton
-              label="Open schema summary"
-              onClick={() => {
-                document
-                  .getElementById("schema-resources")
-                  ?.scrollIntoView({
-                    behavior: "smooth",
-                  });
-              }}
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-400">
+                    Live dataset resource
+                  </p>
+
+                  <h2 className="mt-1 text-xl font-bold text-white">
+                    {loading
+                      ? "Loading dataset..."
+                      : dataset.name ??
+                        "Karnataka FIR Dataset"}
+                  </h2>
+                </div>
+              </div>
+
+              <p className="mt-4 max-w-4xl text-sm leading-6 text-slate-400">
+                {loading
+                  ? "Inspecting CSV files and schema information..."
+                  : `The backend currently contains ${formatNumber(
+                      dataset.tableCount,
+                    )} CSV tables with ${formatNumber(
+                      dataset.totalRecords,
+                    )} records and ${formatNumber(
+                      dataset.totalColumns,
+                    )} schema columns.`}
+              </p>
+            </div>
+
+            <div className="grid gap-3 sm:grid-cols-3 xl:w-[520px]">
+              <button
+                type="button"
+                disabled={loading}
+                onClick={() =>
+                  setShowSummary(true)
+                }
+                className="flex min-h-11 items-center justify-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-blue-500 disabled:opacity-50"
+              >
+                Open summary
+              </button>
+
+              <button
+                type="button"
+                disabled={
+                  loading ||
+                  tables.length === 0
+                }
+                onClick={downloadSchemaJson}
+                className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-600 bg-[#0b1930] px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:border-blue-500 hover:text-white disabled:opacity-50"
+              >
+                <Download size={16} />
+                JSON
+              </button>
+
+              <button
+                type="button"
+                disabled={
+                  loading ||
+                  tables.length === 0
+                }
+                onClick={downloadSchemaCsv}
+                className="flex min-h-11 items-center justify-center gap-2 rounded-xl border border-slate-600 bg-[#0b1930] px-4 py-2.5 text-sm font-medium text-slate-200 transition hover:border-blue-500 hover:text-white disabled:opacity-50"
+              >
+                <Download size={16} />
+                CSV
+              </button>
+            </div>
+          </div>
+
+          <div className="grid border-t border-slate-800 sm:grid-cols-3">
+            <DatasetMetric
+              label="CSV tables"
+              value={
+                loading
+                  ? "..."
+                  : formatNumber(
+                      dataset.tableCount,
+                    )
+              }
             />
 
-            <ResourceLink
-              label="Zoho Catalyst Console"
-              href="https://catalyst.zoho.com/"
+            <DatasetMetric
+              label="Total records"
+              value={
+                loading
+                  ? "..."
+                  : formatNumber(
+                      dataset.totalRecords,
+                    )
+              }
+            />
+
+            <DatasetMetric
+              label="Schema columns"
+              value={
+                loading
+                  ? "..."
+                  : formatNumber(
+                      dataset.totalColumns,
+                    )
+              }
             />
           </div>
         </section>
 
-        <section
-          id="schema-resources"
-          className="mt-5 grid gap-5 md:grid-cols-2 xl:grid-cols-3"
-        >
-          {schemaResources.map((resource) => {
-            const Icon = resource.icon;
+        <section className="mt-5 rounded-2xl border border-slate-700 bg-[#071225] p-4">
+          <div className="relative">
+            <Search
+              size={18}
+              className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-slate-500"
+            />
 
-            return (
-              <article
-                key={resource.title}
-                className="rounded-2xl border border-slate-700 bg-[#071225] p-5"
-              >
-                <div className="flex items-start gap-3">
-                  <div className="rounded-xl bg-blue-500/10 p-3 text-blue-400">
-                    <Icon size={21} />
-                  </div>
+            <input
+              type="search"
+              value={search}
+              onChange={(event) =>
+                setSearch(event.target.value)
+              }
+              placeholder="Search tables, files or column names..."
+              className="w-full rounded-xl border border-slate-700 bg-[#061124] py-3 pl-11 pr-4 text-sm text-white outline-none placeholder:text-slate-500 focus:border-blue-500"
+            />
+          </div>
 
-                  <div>
-                    <h2 className="font-semibold text-white">
-                      {resource.title}
-                    </h2>
+          {!loading && (
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-slate-500">
+              <span>
+                Showing{" "}
+                {formatNumber(
+                  filteredTables.length,
+                )}{" "}
+                of{" "}
+                {formatNumber(tables.length)}{" "}
+                tables
+              </span>
 
-                    <p className="mt-2 text-sm leading-6 text-slate-400">
-                      {resource.description}
-                    </p>
-                  </div>
-                </div>
-
-                <div className="mt-5 flex flex-wrap gap-2">
-                  {resource.fields.map((field) => (
-                    <span
-                      key={field}
-                      className="rounded-lg border border-slate-700 bg-[#061124] px-2.5 py-1.5 text-xs text-slate-300"
-                    >
-                      {field}
-                    </span>
-                  ))}
-                </div>
-              </article>
-            );
-          })}
+              {search && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setSearch("")
+                  }
+                  className="font-medium text-blue-400 hover:text-blue-300"
+                >
+                  Clear search
+                </button>
+              )}
+            </div>
+          )}
         </section>
 
+        {loading ? (
+          <div className="mt-5 flex min-h-96 items-center justify-center rounded-2xl border border-slate-700 bg-[#071225]">
+            <p className="text-sm text-slate-400">
+              Reading dataset structure...
+            </p>
+          </div>
+        ) : groupedResources.length === 0 ? (
+          <div className="mt-5 flex min-h-96 items-center justify-center rounded-2xl border border-slate-700 bg-[#071225]">
+            <div className="text-center">
+              <Search
+                size={30}
+                className="mx-auto text-slate-600"
+              />
+
+              <p className="mt-3 text-sm text-slate-400">
+                No matching dataset resources
+                were found.
+              </p>
+            </div>
+          </div>
+        ) : (
+          <div className="mt-5 grid items-start gap-5 lg:grid-cols-2 xl:grid-cols-3">
+            {groupedResources.map(
+              (group) => (
+                <ResourceCard
+                  key={group.id}
+                  group={group}
+                  onSelectTable={
+                    setSelectedTable
+                  }
+                />
+              ),
+            )}
+          </div>
+        )}
+
         <section className="mt-5 rounded-2xl border border-slate-700 bg-[#071225] p-5">
-          <h2 className="font-semibold text-white">
-            Development guidelines
-          </h2>
+          <div>
+            <h2 className="font-semibold text-white">
+              Development guidelines
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-400">
+              Recommended practices for using
+              FIR intelligence data safely.
+            </p>
+          </div>
 
           <div className="mt-5 grid gap-4 md:grid-cols-2">
             <Guideline
+              number="01"
               title="Use safe queries"
-              description="Allow read-only queries for analytics and block destructive SQL commands."
+              description="Allow read-only analytics queries and reject destructive database operations."
             />
 
             <Guideline
+              number="02"
               title="Protect personal information"
-              description="Restrict sensitive victim, complainant and accused information using role-based access."
+              description="Restrict sensitive victim, complainant and accused information using role-based access controls."
             />
 
             <Guideline
+              number="03"
               title="Verify AI output"
-              description="Treat generated insights as investigative support rather than final legal conclusions."
+              description="Treat generated intelligence as investigative support rather than a final legal conclusion."
             />
 
             <Guideline
+              number="04"
               title="Maintain audit trails"
-              description="Record user, query, result count, timestamp and access status for important activity."
+              description="Record users, queries, report exports, timestamps and access outcomes for important activity."
             />
           </div>
         </section>
+
+        {!loading && tables.length > 0 && (
+          <div className="mt-5 rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3">
+            <p className="text-xs leading-5 text-slate-400">
+              Table names, record totals and
+              columns are inspected directly
+              from CSV files in the backend data
+              directory. No schema totals are
+              stored in this React component.
+            </p>
+          </div>
+        )}
       </main>
+
+      {selectedTable && (
+        <TableDetailsModal
+          table={selectedTable}
+          onClose={() =>
+            setSelectedTable(null)
+          }
+        />
+      )}
+
+      {showSummary && (
+        <SchemaSummaryModal
+          dataset={dataset}
+          tables={tables}
+          generatedAt={data.generatedAt}
+          onClose={() =>
+            setShowSummary(false)
+          }
+        />
+      )}
     </div>
   );
 }
 
-function ResourceButton({ label, onClick }) {
+function DatasetMetric({ label, value }) {
+  return (
+    <div className="border-slate-800 px-6 py-4 sm:border-r sm:last:border-r-0">
+      <p className="text-xs uppercase tracking-wider text-slate-500">
+        {label}
+      </p>
+
+      <p className="mt-1 text-xl font-bold text-white">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function ResourceCard({
+  group,
+  onSelectTable,
+}) {
+  const Icon = group.icon;
+
+  return (
+    <article className="flex min-h-[420px] flex-col overflow-hidden rounded-2xl border border-slate-700 bg-[#071225]">
+      <div className="border-b border-slate-800 p-5">
+        <div className="flex items-start gap-4">
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
+            <Icon size={21} />
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <h2 className="font-semibold text-white">
+              {group.title}
+            </h2>
+
+            <p className="mt-2 text-sm leading-6 text-slate-400">
+              {group.description}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <span className="rounded-full bg-blue-500/10 px-3 py-1 text-xs font-medium text-blue-300">
+            {formatNumber(
+              group.tables.length,
+            )}{" "}
+            tables
+          </span>
+
+          <span className="rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
+            {formatNumber(
+              group.recordCount,
+            )}{" "}
+            records
+          </span>
+        </div>
+      </div>
+
+      <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-4">
+        {group.tables.map((table) => (
+          <button
+            key={table.id}
+            type="button"
+            onClick={() =>
+              onSelectTable(table)
+            }
+            className="group flex w-full items-center justify-between gap-4 rounded-xl border border-slate-700 bg-[#0b1930] px-4 py-3 text-left transition hover:border-blue-500/60 hover:bg-[#0e203b]"
+          >
+            <div className="min-w-0">
+              <p className="truncate text-sm font-semibold text-slate-100 group-hover:text-white">
+                {table.tableName}
+              </p>
+
+              <p className="mt-1 text-xs text-slate-500">
+                {formatNumber(
+                  table.columnCount,
+                )}{" "}
+                columns
+              </p>
+            </div>
+
+            <div className="shrink-0 text-right">
+              <p className="text-sm font-semibold text-blue-300">
+                {formatNumber(
+                  table.recordCount,
+                )}
+              </p>
+
+              <p className="mt-1 text-[11px] text-slate-500">
+                rows
+              </p>
+            </div>
+          </button>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+function TableDetailsModal({
+  table,
+  onClose,
+}) {
+  return (
+    <Modal onClose={onClose}>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-3">
+            <Table2 className="text-blue-400" />
+
+            <h2 className="text-xl font-bold text-white">
+              {table.tableName}
+            </h2>
+          </div>
+
+          <p className="mt-2 text-sm text-slate-400">
+            {table.fileName}
+          </p>
+        </div>
+
+        <CloseButton onClick={onClose} />
+      </div>
+
+      <div className="mt-5 grid grid-cols-2 gap-3">
+        <MetricBox
+          label="Records"
+          value={formatNumber(
+            table.recordCount,
+          )}
+        />
+
+        <MetricBox
+          label="Columns"
+          value={formatNumber(
+            table.columnCount,
+          )}
+        />
+      </div>
+
+      <div className="mt-5 max-h-[55vh] overflow-y-auto rounded-xl border border-slate-700">
+        <table className="min-w-full text-sm">
+          <thead className="sticky top-0 z-10 bg-[#071225]">
+            <tr>
+              <th className="px-4 py-3 text-left text-slate-300">
+                Column
+              </th>
+
+              <th className="px-4 py-3 text-right text-slate-300">
+                Non-empty
+              </th>
+
+              <th className="px-4 py-3 text-right text-slate-300">
+                Completion
+              </th>
+            </tr>
+          </thead>
+
+          <tbody className="divide-y divide-slate-800 bg-[#061124]">
+            {(table.columns ?? []).map(
+              (column) => {
+                const nonEmpty = toNumber(
+                  table.nonEmptyCounts?.[
+                    column
+                  ],
+                );
+
+                return (
+                  <tr key={column}>
+                    <td className="px-4 py-3 font-medium text-white">
+                      {column}
+                    </td>
+
+                    <td className="px-4 py-3 text-right text-slate-300">
+                      {formatNumber(nonEmpty)}
+                    </td>
+
+                    <td className="px-4 py-3 text-right text-slate-400">
+                      {percentage(
+                        nonEmpty,
+                        table.recordCount,
+                      )}
+                    </td>
+                  </tr>
+                );
+              },
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Modal>
+  );
+}
+
+function SchemaSummaryModal({
+  dataset,
+  tables,
+  generatedAt,
+  onClose,
+}) {
+  const largestTables = [...tables]
+    .sort(
+      (first, second) =>
+        toNumber(second.recordCount) -
+        toNumber(first.recordCount),
+    )
+    .slice(0, 10);
+
+  return (
+    <Modal onClose={onClose}>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-xl font-bold text-white">
+            Dataset schema summary
+          </h2>
+
+          <p className="mt-2 text-sm text-slate-400">
+            Generated{" "}
+            {formatDateTime(generatedAt)}
+          </p>
+        </div>
+
+        <CloseButton onClick={onClose} />
+      </div>
+
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <MetricBox
+          label="CSV tables"
+          value={formatNumber(
+            dataset.tableCount,
+          )}
+        />
+
+        <MetricBox
+          label="Total records"
+          value={formatNumber(
+            dataset.totalRecords,
+          )}
+        />
+
+        <MetricBox
+          label="Schema columns"
+          value={formatNumber(
+            dataset.totalColumns,
+          )}
+        />
+      </div>
+
+      <div className="mt-5">
+        <h3 className="font-semibold text-white">
+          Largest dataset tables
+        </h3>
+
+        <div className="mt-3 space-y-2">
+          {largestTables.map((table) => (
+            <div
+              key={table.id}
+              className="flex items-center justify-between rounded-xl bg-[#0b1930] px-4 py-3"
+            >
+              <span className="text-sm text-slate-300">
+                {table.tableName}
+              </span>
+
+              <span className="text-sm font-semibold text-white">
+                {formatNumber(
+                  table.recordCount,
+                )}{" "}
+                rows
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function Modal({ children, onClose }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (
+          event.target ===
+          event.currentTarget
+        ) {
+          onClose();
+        }
+      }}
+    >
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-slate-700 bg-[#071225] p-6 shadow-2xl">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function CloseButton({ onClick }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-blue-500"
+      className="rounded-lg p-2 text-slate-400 transition hover:bg-white/5 hover:text-white"
     >
-      {label}
+      <X size={20} />
     </button>
   );
 }
 
-function ResourceLink({ label, href }) {
+function MetricBox({ label, value }) {
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className="flex items-center gap-2 rounded-xl border border-slate-600 px-4 py-2.5 text-sm font-medium text-slate-200 hover:border-blue-500 hover:text-white"
-    >
-      {label}
-      <ExternalLink size={16} />
-    </a>
+    <div className="rounded-xl bg-[#0b1930] p-4">
+      <p className="text-xs uppercase tracking-wider text-slate-500">
+        {label}
+      </p>
+
+      <p className="mt-2 text-xl font-bold text-white">
+        {value}
+      </p>
+    </div>
   );
 }
 
-function Guideline({ title, description }) {
+function Guideline({
+  number,
+  title,
+  description,
+}) {
   return (
-    <div className="rounded-xl bg-[#0b1930] p-4">
-      <h3 className="text-sm font-semibold text-white">
-        {title}
-      </h3>
+    <div className="flex gap-4 rounded-xl bg-[#0b1930] p-4">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-blue-500/10 text-xs font-bold text-blue-400">
+        {number}
+      </span>
 
-      <p className="mt-2 text-sm leading-6 text-slate-400">
-        {description}
-      </p>
+      <div>
+        <h3 className="text-sm font-semibold text-white">
+          {title}
+        </h3>
+
+        <p className="mt-2 text-sm leading-6 text-slate-400">
+          {description}
+        </p>
+      </div>
     </div>
+  );
+}
+
+function downloadCsv(rows, fileName) {
+  if (!rows.length) {
+    return;
+  }
+
+  const columns = [
+    ...new Set(
+      rows.flatMap((row) =>
+        Object.keys(row),
+      ),
+    ),
+  ];
+
+  const lines = [
+    columns
+      .map(escapeCsvValue)
+      .join(","),
+
+    ...rows.map((row) =>
+      columns
+        .map((column) =>
+          escapeCsvValue(
+            row[column] ?? "",
+          ),
+        )
+        .join(","),
+    ),
+  ];
+
+  downloadTextFile(
+    `\uFEFF${lines.join("\n")}`,
+    fileName,
+    "text/csv;charset=utf-8",
+  );
+}
+
+function downloadTextFile(
+  content,
+  fileName,
+  mimeType,
+) {
+  const blob = new Blob([content], {
+    type: mimeType,
+  });
+
+  const url =
+    URL.createObjectURL(blob);
+
+  const anchor =
+    document.createElement("a");
+
+  anchor.href = url;
+  anchor.download = fileName;
+
+  document.body.appendChild(anchor);
+  anchor.click();
+  document.body.removeChild(anchor);
+
+  URL.revokeObjectURL(url);
+}
+
+function escapeCsvValue(value) {
+  const text = String(value ?? "");
+
+  if (
+    text.includes(",") ||
+    text.includes('"') ||
+    text.includes("\n")
+  ) {
+    return `"${text.replace(
+      /"/g,
+      '""',
+    )}"`;
+  }
+
+  return text;
+}
+
+function percentage(value, total) {
+  const numericTotal = toNumber(total);
+
+  if (!numericTotal) {
+    return "0.0%";
+  }
+
+  return `${(
+    (toNumber(value) /
+      numericTotal) *
+    100
+  ).toFixed(1)}%`;
+}
+
+function formatDateTime(value) {
+  if (!value) {
+    return "Not available";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return date.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function currentDate() {
+  return new Date()
+    .toISOString()
+    .slice(0, 10);
+}
+
+function toNumber(value) {
+  const number = Number(value);
+
+  return Number.isFinite(number)
+    ? number
+    : 0;
+}
+
+function formatNumber(value) {
+  return toNumber(value).toLocaleString(
+    "en-IN",
   );
 }
 

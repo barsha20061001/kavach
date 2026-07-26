@@ -1,4 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
+
 import {
   Bell,
   CalendarDays,
@@ -11,44 +17,103 @@ import {
   Settings,
   UserRound,
 } from "lucide-react";
+
 import { useNavigate } from "react-router-dom";
+import { api } from "../../services/api";
 
 const dateOptions = [
-  { label: "Last 30 days", value: "30d" },
-  { label: "Last 6 months", value: "6m" },
-  { label: "Last 12 months", value: "12m" },
-  { label: "All records", value: "all" },
+  {
+    label: "Last 7 days",
+    value: "Last 7 days",
+  },
+  {
+    label: "Last 30 days",
+    value: "Last 30 days",
+  },
+  {
+    label: "Last 3 months",
+    value: "Last 3 months",
+  },
+  {
+    label: "Last 6 months",
+    value: "Last 6 months",
+  },
+  {
+    label: "Last 12 months",
+    value: "Last 12 months",
+  },
+  {
+    label: "All time",
+    value: "All time",
+  },
 ];
 
 const languageOptions = [
-  { label: "English", value: "English" },
-  { label: "ಕನ್ನಡ", value: "Kannada" },
-  { label: "English + ಕನ್ನಡ", value: "Bilingual" },
+  {
+    label: "English",
+    value: "English",
+  },
+  {
+    label: "ಕನ್ನಡ",
+    value: "ಕನ್ನಡ",
+  },
+  {
+    label: "English + ಕನ್ನಡ",
+    value: "English + ಕನ್ನಡ",
+  },
 ];
 
-const initialNotifications = [
-  {
-    id: 1,
-    title: "Cybercrime surge detected",
-    description: "Bengaluru Urban recorded an unusual increase.",
-    time: "10 minutes ago",
-    unread: true,
-  },
-  {
-    id: 2,
-    title: "Repeat offender match",
-    description: "One accused person appears across multiple FIR records.",
-    time: "38 minutes ago",
-    unread: true,
-  },
-  {
-    id: 3,
-    title: "District report generated",
-    description: "The Mysuru district intelligence report is ready.",
-    time: "2 hours ago",
-    unread: false,
-  },
-];
+const ALERT_STORAGE_KEY =
+  "kavach-acknowledged-alerts";
+
+const ALERT_EVENT_NAME =
+  "kavach-alert-status-updated";
+
+const DEFAULT_SETTINGS = {
+  language: "English + ಕನ್ನಡ",
+  dateRange: "Last 30 days",
+  compactInterface: false,
+  notificationsEnabled: true,
+  criticalAlertsEnabled: true,
+  refreshInterval: "Every 5 minutes",
+  auditLoggingEnabled: true,
+  sessionTimeout: "30 minutes",
+  defaultDistrictId: "All",
+  defaultDistrictName: "All Karnataka",
+  defaultStatusId: "All",
+  defaultStatusName: "All statuses",
+};
+
+function loadAppSettings() {
+  try {
+    const savedSettings = JSON.parse(
+      localStorage.getItem("kavach-settings") || "{}",
+    );
+
+    return {
+      ...DEFAULT_SETTINGS,
+      ...savedSettings,
+    };
+  } catch {
+    return {
+      ...DEFAULT_SETTINGS,
+    };
+  }
+}
+
+function loadAcknowledgedAlertIds() {
+  try {
+    const saved = JSON.parse(
+      localStorage.getItem(ALERT_STORAGE_KEY) || "[]",
+    );
+
+    return Array.isArray(saved)
+      ? saved.map(String)
+      : [];
+  } catch {
+    return [];
+  }
+}
 
 export default function Topbar({
   sidebarCollapsed,
@@ -60,29 +125,130 @@ export default function Topbar({
   const [searchText, setSearchText] = useState("");
   const [openMenu, setOpenMenu] = useState(null);
 
-  const [dateRange, setDateRange] = useState(
-    () => localStorage.getItem("kavach-date-range") || "12m"
-  );
+  const [appSettings, setAppSettings] =
+    useState(loadAppSettings);
 
-  const [language, setLanguage] = useState(
-    () => localStorage.getItem("kavach-language") || "English"
-  );
+  const [notifications, setNotifications] =
+    useState([]);
 
-  const [notifications, setNotifications] = useState(
-    initialNotifications
-  );
+  const [
+    notificationsLoading,
+    setNotificationsLoading,
+  ] = useState(true);
+
+  const dateRange =
+    appSettings.dateRange ||
+    DEFAULT_SETTINGS.dateRange;
+
+  const language =
+    appSettings.language ||
+    DEFAULT_SETTINGS.language;
 
   const selectedDateLabel =
-    dateOptions.find((option) => option.value === dateRange)?.label ||
-    "Last 12 months";
+    dateOptions.find(
+      (option) => option.value === dateRange,
+    )?.label || DEFAULT_SETTINGS.dateRange;
 
   const selectedLanguageLabel =
-    languageOptions.find((option) => option.value === language)?.label ||
-    "English";
+    languageOptions.find(
+      (option) => option.value === language,
+    )?.label || DEFAULT_SETTINGS.language;
 
   const unreadCount = notifications.filter(
-    (notification) => notification.unread
+    (notification) => notification.unread,
   ).length;
+
+  const loadNotifications = useCallback(async () => {
+    setNotificationsLoading(true);
+
+    try {
+      const response = await api.alerts();
+
+      const source =
+        response?.alerts ??
+        response?.data?.alerts ??
+        response?.data ??
+        response ??
+        [];
+
+      const acknowledgedIds =
+        loadAcknowledgedAlertIds();
+
+      const normalizedNotifications =
+        Array.isArray(source)
+          ? source.map((alert, index) => {
+              const id = String(
+                alert.id ??
+                  alert.alertId ??
+                  alert.AlertID ??
+                  `alert-${index}`,
+              );
+
+              return {
+                id,
+
+                title:
+                  alert.title ??
+                  alert.alertTitle ??
+                  alert.name ??
+                  "Dataset intelligence alert",
+
+                description:
+                  alert.description ??
+                  alert.message ??
+                  alert.details ??
+                  "No additional details are available.",
+
+                severity: normalizeSeverity(
+                  alert.severity ??
+                    alert.priority ??
+                    alert.level ??
+                    alert.type,
+                ),
+
+                district:
+                  alert.districtName ??
+                  alert.district ??
+                  alert.location ??
+                  "",
+
+                caseCount: toNumber(
+                  alert.caseCount ??
+                    alert.count ??
+                    alert.totalCases,
+                ),
+
+                type:
+                  alert.type ??
+                  alert.category ??
+                  "intelligence",
+
+                unread:
+                  !acknowledgedIds.includes(id),
+              };
+            })
+          : [];
+
+      normalizedNotifications.sort(
+        (first, second) =>
+          severityRank(second.severity) -
+          severityRank(first.severity),
+      );
+
+      setNotifications(
+        normalizedNotifications.slice(0, 5),
+      );
+    } catch (error) {
+      console.error(
+        "Unable to load Topbar alerts:",
+        error,
+      );
+
+      setNotifications([]);
+    } finally {
+      setNotificationsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     const handleOutsideClick = (event) => {
@@ -94,77 +260,251 @@ export default function Topbar({
       }
     };
 
-    document.addEventListener("mousedown", handleOutsideClick);
+    document.addEventListener(
+      "mousedown",
+      handleOutsideClick,
+    );
 
     return () => {
       document.removeEventListener(
         "mousedown",
-        handleOutsideClick
+        handleOutsideClick,
       );
     };
   }, []);
+
+  useEffect(() => {
+    const handleSettingsUpdate = (event) => {
+      const updatedSettings = {
+        ...DEFAULT_SETTINGS,
+        ...(event.detail || {}),
+      };
+
+      setAppSettings(updatedSettings);
+    };
+
+    const handleStorageUpdate = (event) => {
+      if (
+        event.key &&
+        event.key !== "kavach-settings"
+      ) {
+        return;
+      }
+
+      setAppSettings(loadAppSettings());
+    };
+
+    window.addEventListener(
+      "kavach-settings-updated",
+      handleSettingsUpdate,
+    );
+
+    window.addEventListener(
+      "storage",
+      handleStorageUpdate,
+    );
+
+    return () => {
+      window.removeEventListener(
+        "kavach-settings-updated",
+        handleSettingsUpdate,
+      );
+
+      window.removeEventListener(
+        "storage",
+        handleStorageUpdate,
+      );
+    };
+  }, []);
+
+  useEffect(() => {
+    loadNotifications();
+
+    const handleAlertUpdate = () => {
+      loadNotifications();
+    };
+
+    const handleAlertStorageUpdate = (event) => {
+      if (
+        event.key &&
+        event.key !== ALERT_STORAGE_KEY
+      ) {
+        return;
+      }
+
+      loadNotifications();
+    };
+
+    window.addEventListener(
+      ALERT_EVENT_NAME,
+      handleAlertUpdate,
+    );
+
+    window.addEventListener(
+      "storage",
+      handleAlertStorageUpdate,
+    );
+
+    return () => {
+      window.removeEventListener(
+        ALERT_EVENT_NAME,
+        handleAlertUpdate,
+      );
+
+      window.removeEventListener(
+        "storage",
+        handleAlertStorageUpdate,
+      );
+    };
+  }, [loadNotifications]);
+
+  const saveUpdatedSettings = (
+    changedSettings,
+  ) => {
+    const updatedSettings = {
+      ...appSettings,
+      ...changedSettings,
+    };
+
+    setAppSettings(updatedSettings);
+
+    localStorage.setItem(
+      "kavach-settings",
+      JSON.stringify(updatedSettings),
+    );
+
+    window.dispatchEvent(
+      new CustomEvent(
+        "kavach-settings-updated",
+        {
+          detail: updatedSettings,
+        },
+      ),
+    );
+
+    return updatedSettings;
+  };
+
+  const saveAcknowledgedAlertIds = (ids) => {
+    const uniqueIds = [
+      ...new Set(ids.map(String)),
+    ];
+
+    localStorage.setItem(
+      ALERT_STORAGE_KEY,
+      JSON.stringify(uniqueIds),
+    );
+
+    window.dispatchEvent(
+      new CustomEvent(ALERT_EVENT_NAME, {
+        detail: uniqueIds,
+      }),
+    );
+  };
 
   const handleSearch = (event) => {
     event.preventDefault();
 
     const query = searchText.trim();
 
-    if (!query) return;
+    if (!query) {
+      return;
+    }
 
-    navigate(`/case-search?q=${encodeURIComponent(query)}`);
+    navigate(
+      `/case-search?q=${encodeURIComponent(query)}`,
+    );
   };
 
   const handleDateChange = (value) => {
-    setDateRange(value);
-    localStorage.setItem("kavach-date-range", value);
+    saveUpdatedSettings({
+      dateRange: value,
+    });
 
     window.dispatchEvent(
-      new CustomEvent("kavach-date-range-change", {
-        detail: value,
-      })
+      new CustomEvent(
+        "kavach-date-range-change",
+        {
+          detail: value,
+        },
+      ),
     );
 
     setOpenMenu(null);
   };
 
   const handleLanguageChange = (value) => {
-    setLanguage(value);
-    localStorage.setItem("kavach-language", value);
+    saveUpdatedSettings({
+      language: value,
+    });
 
     window.dispatchEvent(
-      new CustomEvent("kavach-language-change", {
-        detail: value,
-      })
+      new CustomEvent(
+        "kavach-language-change",
+        {
+          detail: value,
+        },
+      ),
     );
 
     setOpenMenu(null);
   };
 
   const markNotificationRead = (id) => {
+    const normalizedId = String(id);
+
+    const acknowledgedIds =
+      loadAcknowledgedAlertIds();
+
+    if (
+      !acknowledgedIds.includes(normalizedId)
+    ) {
+      acknowledgedIds.push(normalizedId);
+    }
+
+    saveAcknowledgedAlertIds(
+      acknowledgedIds,
+    );
+
     setNotifications((current) =>
       current.map((notification) =>
-        notification.id === id
+        String(notification.id) ===
+        normalizedId
           ? {
               ...notification,
               unread: false,
             }
-          : notification
-      )
+          : notification,
+      ),
     );
   };
 
   const markAllNotificationsRead = () => {
+    const acknowledgedIds =
+      loadAcknowledgedAlertIds();
+
+    const visibleNotificationIds =
+      notifications.map((notification) =>
+        String(notification.id),
+      );
+
+    saveAcknowledgedAlertIds([
+      ...acknowledgedIds,
+      ...visibleNotificationIds,
+    ]);
+
     setNotifications((current) =>
       current.map((notification) => ({
         ...notification,
         unread: false,
-      }))
+      })),
     );
   };
 
   const handleLogout = () => {
     localStorage.removeItem("kavach-user");
     localStorage.removeItem("kavach-token");
+
     navigate("/login");
   };
 
@@ -175,7 +515,9 @@ export default function Topbar({
         "fixed right-0 top-0 z-30 h-18",
         "border-b border-slate-800/90 bg-[#07101f]/90 backdrop-blur-xl",
         "transition-[left] duration-300",
-        sidebarCollapsed ? "left-20" : "left-72",
+        sidebarCollapsed
+          ? "left-20"
+          : "left-72",
       ].join(" ")}
     >
       <div className="flex h-full items-center justify-between gap-4 px-5 lg:px-8">
@@ -202,7 +544,11 @@ export default function Topbar({
             <input
               type="search"
               value={searchText}
-              onChange={(event) => setSearchText(event.target.value)}
+              onChange={(event) =>
+                setSearchText(
+                  event.target.value,
+                )
+              }
               placeholder="Search case number, accused or district..."
               className={[
                 "h-10 w-full rounded-xl border border-slate-700",
@@ -217,18 +563,27 @@ export default function Topbar({
 
         <div className="ml-auto flex items-center gap-2">
           {/* Functional date filter */}
-          <div className="relative hidden sm:block">
+          <div
+            data-tour="topbar-date"
+            className="relative hidden sm:block"
+          >
             <button
               type="button"
               onClick={() =>
                 setOpenMenu((current) =>
-                  current === "date" ? null : "date"
+                  current === "date"
+                    ? null
+                    : "date",
                 )
               }
               className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-slate-300 transition hover:border-slate-600 hover:text-white"
             >
               <CalendarDays size={17} />
-              <span>{selectedDateLabel}</span>
+
+              <span>
+                {selectedDateLabel}
+              </span>
+
               <ChevronDown size={14} />
             </button>
 
@@ -238,13 +593,21 @@ export default function Topbar({
                   <button
                     key={option.value}
                     type="button"
-                    onClick={() => handleDateChange(option.value)}
+                    onClick={() =>
+                      handleDateChange(
+                        option.value,
+                      )
+                    }
                     className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm text-slate-300 hover:bg-white/5 hover:text-white"
                   >
                     {option.label}
 
-                    {dateRange === option.value && (
-                      <Check size={16} className="text-blue-400" />
+                    {dateRange ===
+                      option.value && (
+                      <Check
+                        size={16}
+                        className="text-blue-400"
+                      />
                     )}
                   </button>
                 ))}
@@ -258,15 +621,19 @@ export default function Topbar({
               type="button"
               onClick={() =>
                 setOpenMenu((current) =>
-                  current === "language" ? null : "language"
+                  current === "language"
+                    ? null
+                    : "language",
                 )
               }
               className="flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-900/60 px-3 py-2 text-sm text-slate-300 transition hover:border-slate-600 hover:text-white"
             >
               <Languages size={17} />
+
               <span className="hidden sm:inline">
                 {selectedLanguageLabel}
               </span>
+
               <ChevronDown
                 size={14}
                 className="hidden sm:block"
@@ -275,130 +642,206 @@ export default function Topbar({
 
             {openMenu === "language" && (
               <Dropdown className="right-0 w-56">
-                {languageOptions.map((option) => (
-                  <button
-                    key={option.value}
-                    type="button"
-                    onClick={() =>
-                      handleLanguageChange(option.value)
-                    }
-                    className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm text-slate-300 hover:bg-white/5 hover:text-white"
-                  >
-                    {option.label}
+                {languageOptions.map(
+                  (option) => (
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() =>
+                        handleLanguageChange(
+                          option.value,
+                        )
+                      }
+                      className="flex w-full items-center justify-between rounded-lg px-3 py-2.5 text-left text-sm text-slate-300 hover:bg-white/5 hover:text-white"
+                    >
+                      {option.label}
 
-                    {language === option.value && (
-                      <Check size={16} className="text-blue-400" />
-                    )}
-                  </button>
-                ))}
+                      {language ===
+                        option.value && (
+                        <Check
+                          size={16}
+                          className="text-blue-400"
+                        />
+                      )}
+                    </button>
+                  ),
+                )}
               </Dropdown>
             )}
           </div>
 
-          {/* Functional notifications */}
+          {/* Dataset-backed notifications */}
           <div className="relative">
             <button
               type="button"
+              disabled={
+                !appSettings.notificationsEnabled
+              }
               onClick={() =>
                 setOpenMenu((current) =>
                   current === "notifications"
                     ? null
-                    : "notifications"
+                    : "notifications",
                 )
               }
-              className="relative rounded-xl border border-slate-700 bg-slate-900/60 p-2.5 text-slate-300 transition hover:border-slate-600 hover:text-white"
+              className="relative rounded-xl border border-slate-700 bg-slate-900/60 p-2.5 text-slate-300 transition hover:border-slate-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               aria-label="Notifications"
             >
               <Bell size={18} />
 
-              {unreadCount > 0 && (
-                <span className="absolute right-2 top-2 size-2 rounded-full bg-red-500" />
-              )}
+              {appSettings.notificationsEnabled &&
+                unreadCount > 0 && (
+                  <span className="absolute right-2 top-2 size-2 rounded-full bg-red-500" />
+                )}
             </button>
 
-            {openMenu === "notifications" && (
-              <Dropdown className="right-0 w-[360px]">
-                <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
-                  <div>
-                    <h3 className="font-semibold text-white">
-                      Notifications
-                    </h3>
+            {openMenu === "notifications" &&
+              appSettings.notificationsEnabled && (
+                <Dropdown className="right-0 w-[360px]">
+                  <div className="flex items-center justify-between border-b border-slate-800 px-4 py-3">
+                    <div>
+                      <h3 className="font-semibold text-white">
+                        Notifications
+                      </h3>
 
-                    <p className="mt-1 text-xs text-slate-500">
-                      {unreadCount} unread
-                    </p>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {notificationsLoading
+                          ? "Loading..."
+                          : `${unreadCount} unread`}
+                      </p>
+                    </div>
+
+                    {!notificationsLoading &&
+                      unreadCount > 0 && (
+                        <button
+                          type="button"
+                          onClick={
+                            markAllNotificationsRead
+                          }
+                          className="text-xs font-medium text-blue-400 hover:text-blue-300"
+                        >
+                          Mark all read
+                        </button>
+                      )}
                   </div>
 
-                  {unreadCount > 0 && (
-                    <button
-                      type="button"
-                      onClick={markAllNotificationsRead}
-                      className="text-xs font-medium text-blue-400 hover:text-blue-300"
-                    >
-                      Mark all read
-                    </button>
-                  )}
-                </div>
+                  <div className="max-h-80 overflow-y-auto p-2">
+                    {notificationsLoading ? (
+                      <div className="flex min-h-32 items-center justify-center px-4">
+                        <p className="text-sm text-slate-400">
+                          Loading dataset alerts...
+                        </p>
+                      </div>
+                    ) : notifications.length === 0 ? (
+                      <div className="flex min-h-32 items-center justify-center px-4 text-center">
+                        <p className="text-sm text-slate-400">
+                          No intelligence alerts are
+                          available.
+                        </p>
+                      </div>
+                    ) : (
+                      notifications.map(
+                        (notification) => (
+                          <button
+                            key={notification.id}
+                            type="button"
+                            onClick={() => {
+                              markNotificationRead(
+                                notification.id,
+                              );
 
-                <div className="max-h-80 overflow-y-auto p-2">
-                  {notifications.map((notification) => (
+                              setOpenMenu(null);
+                              navigate("/alerts");
+                            }}
+                            className={[
+                              "w-full rounded-xl p-3 text-left transition hover:bg-white/5",
+                              notification.unread
+                                ? "bg-blue-500/5"
+                                : "",
+                            ].join(" ")}
+                          >
+                            <div className="flex items-start gap-3">
+                              <span
+                                className={[
+                                  "mt-1.5 size-2 shrink-0 rounded-full",
+                                  notification.unread
+                                    ? severityDotClass(
+                                        notification.severity,
+                                      )
+                                    : "bg-slate-700",
+                                ].join(" ")}
+                              />
+
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-sm font-medium text-white">
+                                    {notification.title}
+                                  </p>
+
+                                  <span
+                                    className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${severityBadgeClass(
+                                      notification.severity,
+                                    )}`}
+                                  >
+                                    {
+                                      notification.severity
+                                    }
+                                  </span>
+                                </div>
+
+                                <p className="mt-1 text-xs leading-5 text-slate-400">
+                                  {
+                                    notification.description
+                                  }
+                                </p>
+
+                                <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-[11px] text-slate-600">
+                                  {notification.district && (
+                                    <span>
+                                      {
+                                        notification.district
+                                      }
+                                    </span>
+                                  )}
+
+                                  {notification.caseCount >
+                                    0 && (
+                                    <span>
+                                      {notification.caseCount.toLocaleString(
+                                        "en-IN",
+                                      )}{" "}
+                                      cases
+                                    </span>
+                                  )}
+
+                                  <span>
+                                    {notification.unread
+                                      ? "New"
+                                      : "Acknowledged"}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+                          </button>
+                        ),
+                      )
+                    )}
+                  </div>
+
+                  <div className="border-t border-slate-800 p-2">
                     <button
-                      key={notification.id}
                       type="button"
                       onClick={() => {
-                        markNotificationRead(notification.id);
                         setOpenMenu(null);
                         navigate("/alerts");
                       }}
-                      className={[
-                        "w-full rounded-xl p-3 text-left transition hover:bg-white/5",
-                        notification.unread
-                          ? "bg-blue-500/5"
-                          : "",
-                      ].join(" ")}
+                      className="w-full rounded-lg py-2 text-sm font-medium text-blue-400 hover:bg-white/5 hover:text-blue-300"
                     >
-                      <div className="flex items-start gap-3">
-                        <span
-                          className={[
-                            "mt-1.5 size-2 shrink-0 rounded-full",
-                            notification.unread
-                              ? "bg-blue-400"
-                              : "bg-slate-700",
-                          ].join(" ")}
-                        />
-
-                        <div>
-                          <p className="text-sm font-medium text-white">
-                            {notification.title}
-                          </p>
-
-                          <p className="mt-1 text-xs leading-5 text-slate-400">
-                            {notification.description}
-                          </p>
-
-                          <p className="mt-2 text-[11px] text-slate-600">
-                            {notification.time}
-                          </p>
-                        </div>
-                      </div>
+                      View all alerts
                     </button>
-                  ))}
-                </div>
-
-                <div className="border-t border-slate-800 p-2">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setOpenMenu(null);
-                      navigate("/alerts");
-                    }}
-                    className="w-full rounded-lg py-2 text-sm font-medium text-blue-400 hover:bg-white/5 hover:text-blue-300"
-                  >
-                    View all alerts
-                  </button>
-                </div>
-              </Dropdown>
-            )}
+                  </div>
+                </Dropdown>
+              )}
           </div>
 
           {/* Functional profile */}
@@ -407,7 +850,9 @@ export default function Topbar({
               type="button"
               onClick={() =>
                 setOpenMenu((current) =>
-                  current === "profile" ? null : "profile"
+                  current === "profile"
+                    ? null
+                    : "profile",
                 )
               }
               className="ml-1 flex size-10 items-center justify-center rounded-xl bg-blue-600 font-semibold text-white hover:bg-blue-500"
@@ -465,7 +910,10 @@ export default function Topbar({
   );
 }
 
-function Dropdown({ children, className = "" }) {
+function Dropdown({
+  children,
+  className = "",
+}) {
   return (
     <div
       className={[
@@ -501,4 +949,81 @@ function MenuButton({
       {label}
     </button>
   );
+}
+
+function normalizeSeverity(value) {
+  const severity = String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (
+    severity === "critical" ||
+    severity === "severe"
+  ) {
+    return "Critical";
+  }
+
+  if (severity === "high") {
+    return "High";
+  }
+
+  if (
+    severity === "medium" ||
+    severity === "moderate"
+  ) {
+    return "Medium";
+  }
+
+  return "Low";
+}
+
+function severityRank(severity) {
+  const ranks = {
+    Critical: 4,
+    High: 3,
+    Medium: 2,
+    Low: 1,
+  };
+
+  return ranks[severity] ?? 0;
+}
+
+function severityDotClass(severity) {
+  if (severity === "Critical") {
+    return "bg-red-500";
+  }
+
+  if (severity === "High") {
+    return "bg-orange-500";
+  }
+
+  if (severity === "Medium") {
+    return "bg-amber-500";
+  }
+
+  return "bg-blue-400";
+}
+
+function severityBadgeClass(severity) {
+  if (severity === "Critical") {
+    return "bg-red-500/15 text-red-400";
+  }
+
+  if (severity === "High") {
+    return "bg-orange-500/15 text-orange-400";
+  }
+
+  if (severity === "Medium") {
+    return "bg-amber-500/15 text-amber-400";
+  }
+
+  return "bg-blue-500/15 text-blue-400";
+}
+
+function toNumber(value) {
+  const number = Number(value);
+
+  return Number.isFinite(number)
+    ? number
+    : 0;
 }

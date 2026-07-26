@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
 import CytoscapeComponent from "react-cytoscapejs";
+
 import {
   Network,
   Search,
@@ -12,143 +13,164 @@ import { useApi } from "../hooks/useApi";
 import { api } from "../services/api";
 
 function CriminalNetwork() {
-  const [selectedNode, setSelectedNode] = useState(null);
+  const [selectedNode, setSelectedNode] =
+    useState(null);
+
   const [search, setSearch] = useState("");
+  const [searchMessage, setSearchMessage] =
+    useState("");
 
   const {
-    data: networkData,
+    data,
     loading,
     error,
   } = useApi(() => api.network(), []);
 
   const networkNodes = useMemo(() => {
-    const nodes = networkData?.nodes ?? [];
+    const source =
+      data?.nodes ??
+      data?.data?.nodes ??
+      [];
 
-    return nodes.map((node, index) => {
-      const source = node?.data ?? node;
+    if (!Array.isArray(source)) {
+      return [];
+    }
 
-      return {
-        data: {
-          ...source,
-          id: String(
-            source.id ??
-              source.nodeId ??
-              `${source.type ?? "node"}-${index}`,
-          ),
-          label:
-            source.label ??
-            source.name ??
-            source.accusedName ??
-            source.crimeNo ??
-            source.districtName ??
-            "Unknown entity",
-          type: source.type ?? "unknown",
-          risk: source.risk ?? source.riskLevel ?? "",
-        },
-      };
-    });
-  }, [networkData]);
-
-  const networkEdges = useMemo(() => {
-    const edges = networkData?.edges ?? [];
-
-    return edges
-      .map((edge, index) => {
-        const source = edge?.data ?? edge;
-
-        const sourceId =
-          source.source ??
-          source.sourceId ??
-          source.from;
-
-        const targetId =
-          source.target ??
-          source.targetId ??
-          source.to;
-
-        if (sourceId == null || targetId == null) {
-          return null;
-        }
+    return source
+      .map((node, index) => {
+        const degree = toNumber(
+          node.degree ??
+            node.connectionCount ??
+            node.connections,
+        );
 
         return {
           data: {
-            ...source,
             id: String(
-              source.id ??
-                source.edgeId ??
-                `edge-${index}`,
+              node.id ??
+                node.personId ??
+                node.PersonMasterID ??
+                `person-${index}`,
             ),
-            source: String(sourceId),
-            target: String(targetId),
-            relation:
-              source.relation ??
-              source.label ??
-              source.relationship ??
-              "linked",
+
+            label:
+              node.label ??
+              node.name ??
+              node.personName ??
+              "Unknown person",
+
+            type: "accused",
+
+            degree,
+
+            risk: normalizeRisk(
+              node.risk ??
+                calculateRisk(degree),
+            ),
           },
         };
       })
-      .filter(Boolean);
-  }, [networkData]);
+      .filter(
+        (node) =>
+          node.data.id &&
+          node.data.label,
+      );
+  }, [data]);
+
+  const networkEdges = useMemo(() => {
+    const source =
+      data?.edges ??
+      data?.data?.edges ??
+      [];
+
+    if (!Array.isArray(source)) {
+      return [];
+    }
+
+    return source
+      .map((edge, index) => {
+        const weight = toNumber(
+          edge.weight ??
+            edge.count ??
+            edge.sharedCases,
+        );
+
+        const sourceId = String(
+          edge.source ??
+            edge.sourceId ??
+            "",
+        );
+
+        const targetId = String(
+          edge.target ??
+            edge.targetId ??
+            "",
+        );
+
+        return {
+          data: {
+            id:
+              edge.id ??
+              `edge-${sourceId}-${targetId}-${index}`,
+
+            source: sourceId,
+            target: targetId,
+            weight,
+
+            relation:
+              weight === 1
+                ? "1 shared case"
+                : `${weight} shared cases`,
+          },
+        };
+      })
+      .filter(
+        (edge) =>
+          edge.data.source &&
+          edge.data.target,
+      );
+  }, [data]);
 
   const elements = useMemo(
-    () => [...networkNodes, ...networkEdges],
+    () => [
+      ...networkNodes,
+      ...networkEdges,
+    ],
     [networkNodes, networkEdges],
   );
 
-  const intelligenceObservation = useMemo(() => {
-    if (networkData?.observation) {
-      return networkData.observation;
-    }
+  const networkSummary = useMemo(() => {
+    const highRisk = networkNodes.filter(
+      (node) =>
+        node.data.risk === "high",
+    ).length;
 
-    if (networkData?.insight) {
-      return networkData.insight;
-    }
+    const mediumRisk = networkNodes.filter(
+      (node) =>
+        node.data.risk === "medium",
+    ).length;
 
-    const accusedNodes = networkNodes.filter(
-      (node) => node.data.type === "accused",
-    );
+    const lowRisk = networkNodes.filter(
+      (node) =>
+        node.data.risk === "low",
+    ).length;
 
-    if (accusedNodes.length === 0) {
-      return "No accused-person relationships are available in the current dataset.";
-    }
+    const mostConnected =
+      networkNodes.length > 0
+        ? [...networkNodes].sort(
+            (first, second) =>
+              second.data.degree -
+              first.data.degree,
+          )[0]?.data
+        : null;
 
-    const connectionCounts = new Map();
-
-    networkEdges.forEach((edge) => {
-      const source = edge.data.source;
-      const target = edge.data.target;
-
-      connectionCounts.set(
-        source,
-        (connectionCounts.get(source) ?? 0) + 1,
-      );
-
-      connectionCounts.set(
-        target,
-        (connectionCounts.get(target) ?? 0) + 1,
-      );
-    });
-
-    const rankedAccused = accusedNodes
-      .map((node) => ({
-        ...node.data,
-        connections:
-          connectionCounts.get(node.data.id) ?? 0,
-      }))
-      .sort(
-        (first, second) =>
-          second.connections - first.connections,
-      );
-
-    const mostConnected = rankedAccused[0];
-
-    if (!mostConnected || mostConnected.connections === 0) {
-      return `${accusedNodes.length.toLocaleString()} accused persons are represented in the current criminal network.`;
-    }
-
-    return `${mostConnected.label} has the highest number of visible relationships, with ${mostConnected.connections.toLocaleString()} linked network connections.`;
-  }, [networkData, networkNodes, networkEdges]);
+    return {
+      highRisk,
+      mediumRisk,
+      lowRisk,
+      mostConnected,
+    };
+  }, [networkNodes]);
 
   const stylesheet = [
     {
@@ -156,53 +178,53 @@ function CriminalNetwork() {
       style: {
         label: "data(label)",
         color: "#e2e8f0",
-        "font-size": "11px",
+        "font-size": "10px",
         "text-wrap": "wrap",
         "text-max-width": "100px",
         "text-valign": "bottom",
         "text-margin-y": 10,
-        width: 45,
-        height: 45,
+        width: 42,
+        height: 42,
         "border-width": 2,
         "border-color": "#334155",
         "background-color": "#3b82f6",
       },
     },
     {
-      selector: 'node[type="accused"]',
-      style: {
-        "background-color": "#ef4444",
-        shape: "ellipse",
-      },
-    },
-    {
-      selector: 'node[type="case"]',
-      style: {
-        "background-color": "#8b5cf6",
-        shape: "round-rectangle",
-      },
-    },
-    {
-      selector: 'node[type="district"]',
-      style: {
-        "background-color": "#14b8a6",
-        shape: "hexagon",
-      },
-    },
-    {
       selector: 'node[risk="high"]',
       style: {
+        "background-color": "#ef4444",
         "border-color": "#fca5a5",
         "border-width": 4,
+        width: 52,
+        height: 52,
+      },
+    },
+    {
+      selector: 'node[risk="medium"]',
+      style: {
+        "background-color": "#f59e0b",
+        "border-color": "#fcd34d",
+        "border-width": 3,
+        width: 47,
+        height: 47,
+      },
+    },
+    {
+      selector: 'node[risk="low"]',
+      style: {
+        "background-color": "#3b82f6",
+        "border-color": "#60a5fa",
       },
     },
     {
       selector: "edge",
       style: {
-        width: 2,
+        width:
+          "mapData(weight, 1, 10, 1, 6)",
         "line-color": "#475569",
         "target-arrow-color": "#475569",
-        "target-arrow-shape": "triangle",
+        "target-arrow-shape": "none",
         "curve-style": "bezier",
         label: "data(relation)",
         color: "#94a3b8",
@@ -225,25 +247,43 @@ function CriminalNetwork() {
     cy.off("tap", "node");
 
     cy.on("tap", "node", (event) => {
-      setSelectedNode(event.target.data());
+      setSelectedNode(
+        event.target.data(),
+      );
+
+      setSearchMessage("");
     });
   };
 
   const handleSearch = () => {
-    const normalizedSearch = search.trim().toLowerCase();
+    const normalizedSearch = search
+      .trim()
+      .toLowerCase();
 
     if (!normalizedSearch) {
+      setSearchMessage(
+        "Enter an accused-person name.",
+      );
+
       return;
     }
 
-    const result = networkNodes.find((node) =>
-      String(node.data.label)
-        .toLowerCase()
-        .includes(normalizedSearch),
+    const result = networkNodes.find(
+      (node) =>
+        node.data.label
+          .toLowerCase()
+          .includes(normalizedSearch),
     );
 
     if (result) {
       setSelectedNode(result.data);
+      setSearchMessage("");
+    } else {
+      setSelectedNode(null);
+
+      setSearchMessage(
+        "No matching accused person was found in the current network dataset.",
+      );
     }
   };
 
@@ -252,27 +292,33 @@ function CriminalNetwork() {
       <PageHeader
         icon={Network}
         title="Criminal Network"
-        description="Visualise links between accused persons, FIRs and districts"
+        description="Visualise accused-person relationships derived from shared FIR records"
         action={
           <div className="flex gap-2">
             <input
               value={search}
-              onChange={(event) =>
-                setSearch(event.target.value)
-              }
+              disabled={loading}
+              onChange={(event) => {
+                setSearch(
+                  event.target.value,
+                );
+
+                setSearchMessage("");
+              }}
               onKeyDown={(event) => {
                 if (event.key === "Enter") {
                   handleSearch();
                 }
               }}
-              placeholder="Search accused or FIR..."
-              className="rounded-xl border border-slate-700 bg-[#071225] px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500"
+              placeholder="Search accused person..."
+              className="rounded-xl border border-slate-700 bg-[#071225] px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500 disabled:opacity-50"
             />
 
             <button
               type="button"
+              disabled={loading}
               onClick={handleSearch}
-              className="rounded-xl bg-blue-600 px-4 text-white hover:bg-blue-500"
+              className="rounded-xl bg-blue-600 px-4 text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <Search size={18} />
             </button>
@@ -285,30 +331,28 @@ function CriminalNetwork() {
           {loading ? (
             <div className="flex h-full min-h-[600px] items-center justify-center">
               <p className="text-sm text-slate-400">
-                Loading criminal network...
+                Building accused-person
+                relationship network...
               </p>
             </div>
           ) : error ? (
-            <div className="flex h-full min-h-[600px] items-center justify-center px-6 text-center">
-              <div>
-                <ShieldAlert
-                  size={28}
-                  className="mx-auto text-red-400"
-                />
-
-                <p className="mt-3 text-sm font-medium text-red-300">
-                  Unable to load criminal network
+            <div className="flex h-full min-h-[600px] items-center justify-center p-6">
+              <div className="text-center">
+                <p className="font-semibold text-red-300">
+                  Unable to load criminal
+                  network
                 </p>
 
-                <p className="mt-2 text-xs text-slate-500">
-                  {error}
+                <p className="mt-2 text-sm text-slate-400">
+                  {String(error)}
                 </p>
               </div>
             </div>
           ) : elements.length === 0 ? (
             <div className="flex h-full min-h-[600px] items-center justify-center">
               <p className="text-sm text-slate-400">
-                No network relationships are available.
+                No accused-person
+                relationships are available.
               </p>
             </div>
           ) : (
@@ -319,8 +363,12 @@ function CriminalNetwork() {
               layout={{
                 name: "cose",
                 animate: true,
-                nodeRepulsion: 8000,
-                idealEdgeLength: 130,
+                nodeRepulsion: 9000,
+                idealEdgeLength: 120,
+                edgeElasticity: 120,
+                gravity: 0.3,
+                numIter: 1000,
+                randomize: true,
               }}
               style={{
                 width: "100%",
@@ -340,16 +388,40 @@ function CriminalNetwork() {
             <div className="mt-5 space-y-3">
               <Legend
                 color="bg-red-500"
-                label="Accused person"
+                label={`High connectivity (${formatNumber(
+                  networkSummary.highRisk,
+                )})`}
               />
+
               <Legend
-                color="bg-purple-500"
-                label="FIR or case"
+                color="bg-amber-500"
+                label={`Medium connectivity (${formatNumber(
+                  networkSummary.mediumRisk,
+                )})`}
               />
+
               <Legend
-                color="bg-teal-500"
-                label="District"
+                color="bg-blue-500"
+                label={`Low connectivity (${formatNumber(
+                  networkSummary.lowRisk,
+                )})`}
               />
+            </div>
+
+            <div className="mt-5 border-t border-slate-800 pt-4">
+              <p className="text-xs text-slate-500">
+                {formatNumber(
+                  networkNodes.length,
+                )}{" "}
+                accused persons
+              </p>
+
+              <p className="mt-1 text-xs text-slate-500">
+                {formatNumber(
+                  networkEdges.length,
+                )}{" "}
+                shared-case relationships
+              </p>
             </div>
           </section>
 
@@ -358,45 +430,83 @@ function CriminalNetwork() {
               Selected entity
             </h2>
 
+            {searchMessage && (
+              <p className="mt-4 text-sm leading-6 text-amber-400">
+                {searchMessage}
+              </p>
+            )}
+
             {selectedNode ? (
               <div className="mt-5">
                 <div className="flex items-center gap-3">
                   <div className="rounded-xl bg-blue-500/10 p-3 text-blue-400">
-                    {selectedNode.type === "accused" ? (
-                      <UserRound size={22} />
-                    ) : (
-                      <ShieldAlert size={22} />
-                    )}
+                    <UserRound size={22} />
                   </div>
 
                   <div>
                     <p className="font-semibold text-white">
-                      {selectedNode.label}
+                      {
+                        selectedNode.label
+                      }
                     </p>
 
                     <p className="mt-1 text-xs uppercase text-slate-500">
-                      {selectedNode.type}
+                      Accused person
                     </p>
                   </div>
                 </div>
 
-                {selectedNode.risk && (
-                  <div className="mt-4 rounded-xl bg-red-500/10 p-3">
-                    <p className="text-xs text-slate-400">
-                      Risk classification
-                    </p>
+                <div className="mt-4 rounded-xl bg-[#0b1930] p-3">
+                  <p className="text-xs text-slate-400">
+                    Connection strength
+                  </p>
 
-                    <p className="mt-1 font-semibold capitalize text-red-400">
-                      {selectedNode.risk}
-                    </p>
-                  </div>
-                )}
+                  <p className="mt-1 font-semibold text-white">
+                    {formatNumber(
+                      selectedNode.degree,
+                    )}{" "}
+                    weighted links
+                  </p>
+                </div>
+
+                <div
+                  className={`mt-3 rounded-xl p-3 ${
+                    selectedNode.risk ===
+                    "high"
+                      ? "bg-red-500/10"
+                      : selectedNode.risk ===
+                          "medium"
+                        ? "bg-amber-500/10"
+                        : "bg-blue-500/10"
+                  }`}
+                >
+                  <p className="text-xs text-slate-400">
+                    Network classification
+                  </p>
+
+                  <p
+                    className={`mt-1 font-semibold capitalize ${
+                      selectedNode.risk ===
+                      "high"
+                        ? "text-red-400"
+                        : selectedNode.risk ===
+                            "medium"
+                          ? "text-amber-400"
+                          : "text-blue-400"
+                    }`}
+                  >
+                    {selectedNode.risk}
+                  </p>
+                </div>
               </div>
             ) : (
-              <p className="mt-4 text-sm leading-6 text-slate-400">
-                Select a node in the network to inspect its
-                details.
-              </p>
+              !searchMessage && (
+                <p className="mt-4 text-sm leading-6 text-slate-400">
+                  Select a node in the
+                  network to inspect its
+                  dataset-derived details.
+                </p>
+              )
             )}
           </section>
 
@@ -405,15 +515,99 @@ function CriminalNetwork() {
               Intelligence observation
             </h3>
 
-            <p className="mt-2 text-sm leading-6 text-slate-300">
-              {loading
-                ? "Analysing criminal relationships..."
-                : intelligenceObservation}
-            </p>
+            {loading ? (
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                Analysing accused-person
+                relationships...
+              </p>
+            ) : networkSummary.mostConnected ? (
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                {
+                  networkSummary
+                    .mostConnected.label
+                }{" "}
+                has the highest weighted
+                connectivity in the current
+                graph, with{" "}
+                {formatNumber(
+                  networkSummary
+                    .mostConnected.degree,
+                )}{" "}
+                shared-case links.
+              </p>
+            ) : (
+              <p className="mt-2 text-sm leading-6 text-slate-300">
+                No shared accused-person
+                relationships are available in
+                the current dataset.
+              </p>
+            )}
+          </section>
+
+          <section className="rounded-2xl border border-slate-700 bg-[#071225] p-4">
+            <div className="flex items-start gap-3">
+              <ShieldAlert
+                size={18}
+                className="mt-0.5 shrink-0 text-slate-400"
+              />
+
+              <p className="text-xs leading-5 text-slate-400">
+                Nodes are created from accused
+                records grouped by person.
+                Connections indicate that two
+                accused persons appear in the
+                same FIR. Network
+                classification is an analytical
+                indicator, not evidence of
+                criminal association.
+              </p>
+            </div>
           </section>
         </aside>
       </main>
     </div>
+  );
+}
+
+function normalizeRisk(value) {
+  const risk = String(value ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (risk === "high") {
+    return "high";
+  }
+
+  if (risk === "medium") {
+    return "medium";
+  }
+
+  return "low";
+}
+
+function calculateRisk(degree) {
+  if (degree >= 6) {
+    return "high";
+  }
+
+  if (degree >= 3) {
+    return "medium";
+  }
+
+  return "low";
+}
+
+function toNumber(value) {
+  const number = Number(value);
+
+  return Number.isFinite(number)
+    ? number
+    : 0;
+}
+
+function formatNumber(value) {
+  return toNumber(value).toLocaleString(
+    "en-IN",
   );
 }
 

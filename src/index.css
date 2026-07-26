@@ -119,3 +119,43 @@ a {
 
   background-size: 42px 42px;
 }
+
+.settings-select {
+  width: 100%;
+  border: 1px solid rgb(51 65 85);
+  border-radius: 0.75rem;
+  background: #061124;
+  padding: 0.75rem 1rem;
+  color: white;
+  font-size: 0.875rem;
+  outline: none;
+}
+
+.settings-select:focus {
+  border-color: rgb(59 130 246);
+}
+
+.settings-select:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.kavach-compact main {
+  --compact-spacing: 0.75rem;
+}
+
+.kavach-compact main .rounded-2xl {
+  border-radius: 0.75rem;
+}
+
+.kavach-compact main .p-5 {
+  padding: 0.875rem;
+}
+
+.kavach-compact main .gap-5 {
+  gap: 0.875rem;
+}
+
+.kavach-compact main .mt-5 {
+  margin-top: 0.875rem;
+}

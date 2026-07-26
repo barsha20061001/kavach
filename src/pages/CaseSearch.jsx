@@ -1,199 +1,239 @@
 import { Search } from "lucide-react";
-import { useEffect, useMemo, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import { useSearchParams } from "react-router-dom";
+import { addAuditLog } from "../utils/auditLogger";
 
 import PageHeader from "../components/common/PageHeader";
-import { useApi } from "../hooks/useApi";
 import { api } from "../services/api";
 
 function CaseSearch() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams, setSearchParams] =
+    useSearchParams();
 
   const [query, setQuery] = useState(
     searchParams.get("q") || "",
   );
 
-  const [district, setDistrict] = useState("All");
-  const [status, setStatus] = useState("All");
+  const [district, setDistrict] =
+    useState("All");
+
+  const [status, setStatus] =
+    useState("All");
+
+  const [cases, setCases] = useState([]);
+  const [districts, setDistricts] =
+    useState([]);
+  const [statuses, setStatuses] =
+    useState([]);
+
+  const [loading, setLoading] =
+    useState(true);
+
+  const [error, setError] =
+    useState("");
 
   useEffect(() => {
     setQuery(searchParams.get("q") || "");
   }, [searchParams]);
 
-  const {
-    data: searchData,
-    loading,
-    error,
-  } = useApi(
-    () =>
-      api.search({
-        query,
-        district:
-          district === "All" ? "" : district,
-        status:
-          status === "All" ? "" : status,
-      }),
-    [query, district, status],
-  );
+  useEffect(() => {
+    let active = true;
 
-  const {
-    data: districtData,
-    loading: districtsLoading,
-  } = useApi(() => api.districts(), []);
+    async function loadLookups() {
+      try {
+        const [
+          lookupsResponse,
+          districtsResponse,
+        ] = await Promise.all([
+          api.lookups(),
+          api.districts(),
+        ]);
+
+        if (!active) return;
+
+        const lookupData =
+          lookupsResponse?.data ??
+          lookupsResponse ??
+          {};
+
+        const districtSource =
+          districtsResponse?.districts ??
+          districtsResponse?.data?.districts ??
+          districtsResponse?.data ??
+          districtsResponse ??
+          [];
+
+        const statusSource =
+          lookupData?.statuses ??
+          lookupData?.caseStatuses ??
+          lookupData?.CaseStatusMaster ??
+          [];
+
+        setDistricts(
+          normalizeDistricts(districtSource),
+        );
+
+        setStatuses(
+          normalizeStatuses(statusSource),
+        );
+      } catch (lookupError) {
+        console.error(
+          "Unable to load search filters:",
+          lookupError,
+        );
+      }
+    }
+
+    loadLookups();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+
+    const timeoutId = setTimeout(
+      async () => {
+        setLoading(true);
+        setError("");
+
+        try {
+          const response = await api.search(
+            query.trim(),
+          );
+
+          if (!active) return;
+
+          const source =
+            response?.cases ??
+            response?.results ??
+            response?.data?.cases ??
+            response?.data?.results ??
+            response?.data ??
+            response ??
+            [];
+
+          const normalizedCases =
+            normalizeCases(source);
+
+          setCases(normalizedCases);
+
+          if (query.trim()) {
+            addAuditLog({
+             action: "Searched FIR records",
+             resource: query.trim(),
+             category: "Case Search",
+             status: "Success",
+             details: `${normalizedCases.length} matching records returned`,
+              });
+          }
+
+          setDistricts((current) => {
+            if (current.length > 0) {
+              return current;
+            }
+
+            return [
+              ...new Set(
+                normalizedCases
+                  .map(
+                    (crime) =>
+                      crime.district,
+                  )
+                  .filter(Boolean),
+              ),
+            ].sort((first, second) =>
+              first.localeCompare(second),
+            );
+          });
+
+          setStatuses((current) => {
+            if (current.length > 0) {
+              return current;
+            }
+
+            return [
+              ...new Set(
+                normalizedCases
+                  .map(
+                    (crime) =>
+                      crime.status,
+                  )
+                  .filter(Boolean),
+              ),
+            ].sort((first, second) =>
+              first.localeCompare(second),
+            );
+          });
+        } catch (searchError) {
+          console.error(
+            "Case search failed:",
+            searchError,
+          );
+
+          if (!active) return;
+
+          setCases([]);
+
+          setError(
+            searchError?.message ??
+              "Unable to load case records.",
+          );
+        } finally {
+          if (active) {
+            setLoading(false);
+          }
+        }
+      },
+      300,
+    );
+
+    return () => {
+      active = false;
+      clearTimeout(timeoutId);
+    };
+  }, [query]);
 
   const results = useMemo(() => {
-    const cases =
-      searchData?.results ??
-      searchData?.cases ??
-      searchData?.data ??
-      [];
+    return cases.filter((crime) => {
+      const matchesDistrict =
+        district === "All" ||
+        crime.district === district;
 
-    return cases.map((crime, index) => ({
-      id:
-        crime.id ??
-        crime.caseId ??
-        crime.firId ??
-        `case-${index}`,
+      const matchesStatus =
+        status === "All" ||
+        crime.status === status;
 
-      crimeNo:
-        crime.crimeNo ??
-        crime.crimeNumber ??
-        "",
-
-      caseNo:
-        crime.caseNo ??
-        crime.firNo ??
-        crime.crimeNo ??
-        "Not available",
-
-      date:
-        crime.date ??
-        crime.firDate ??
-        crime.registeredDate ??
-        "",
-
-      district:
-        crime.district ??
-        crime.districtName ??
-        "Unknown district",
-
-      policeStation:
-        crime.policeStation ??
-        crime.policeStationName ??
-        crime.unitName ??
-        "Unknown police station",
-
-      crimeHead:
-        crime.crimeHead ??
-        crime.crimeHeadName ??
-        crime.offenceCategory ??
-        "",
-
-      crimeSubHead:
-        crime.crimeSubHead ??
-        crime.crimeSubHeadName ??
-        crime.offence ??
-        crime.crimeHead ??
-        crime.crimeHeadName ??
-        "Unknown offence",
-
-      status:
-        crime.status ??
-        crime.statusName ??
-        crime.caseStatus ??
-        "Unknown",
-
-      gravity:
-        crime.gravity ??
-        crime.gravityName ??
-        crime.severity ??
-        "Not specified",
-    }));
-  }, [searchData]);
-
-  const districts = useMemo(() => {
-    const items =
-      districtData?.districts ??
-      districtData?.data ??
-      districtData ??
-      [];
-
-    if (!Array.isArray(items)) {
-      return [];
-    }
-
-    return items
-      .map((item) =>
-        typeof item === "string"
-          ? item
-          : item.districtName ??
-            item.name ??
-            item.label,
-      )
-      .filter(Boolean)
-      .sort((first, second) =>
-        first.localeCompare(second),
+      return (
+        matchesDistrict &&
+        matchesStatus
       );
-  }, [districtData]);
+    });
+  }, [cases, district, status]);
 
-  const statuses = useMemo(() => {
-    const backendStatuses =
-      searchData?.filters?.statuses ??
-      searchData?.statuses ??
-      [];
+  const handleQueryChange = (event) => {
+    const value = event.target.value;
 
-    if (
-      Array.isArray(backendStatuses) &&
-      backendStatuses.length > 0
-    ) {
-      return backendStatuses
-        .map((item) =>
-          typeof item === "string"
-            ? item
-            : item.statusName ??
-              item.name ??
-              item.label,
-        )
-        .filter(Boolean)
-        .sort((first, second) =>
-          first.localeCompare(second),
-        );
+    setQuery(value);
+
+    const nextParams =
+      new URLSearchParams(searchParams);
+
+    if (value.trim()) {
+      nextParams.set("q", value);
+    } else {
+      nextParams.delete("q");
     }
 
-    return [
-      ...new Set(
-        results
-          .map((crime) => crime.status)
-          .filter(Boolean),
-      ),
-    ].sort((first, second) =>
-      first.localeCompare(second),
-    );
-  }, [searchData, results]);
-
-  const formatDate = (dateValue) => {
-    if (!dateValue) {
-      return "Not available";
-    }
-
-    const date = new Date(dateValue);
-
-    if (Number.isNaN(date.getTime())) {
-      return dateValue;
-    }
-
-    return date.toLocaleDateString("en-GB");
-  };
-
-  const isHighGravity = (gravity) => {
-    const value = String(gravity).toLowerCase();
-
-    return (
-      value.includes("high") ||
-      value.includes("grave") ||
-      value.includes("heinous") ||
-      value.includes("serious")
-    );
+    setSearchParams(nextParams, {
+      replace: true,
+    });
   };
 
   return (
@@ -205,26 +245,16 @@ function CaseSearch() {
       />
 
       <main className="min-h-0 flex-1 overflow-y-auto p-5">
+        {error && (
+          <div className="mb-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
+            {error}
+          </div>
+        )}
+
         <div className="grid gap-3 rounded-2xl border border-slate-700 bg-[#071225] p-4 md:grid-cols-[1fr_220px_220px]">
           <input
             value={query}
-            onChange={(event) => {
-              const value = event.target.value;
-
-              setQuery(value);
-
-              const nextParams = new URLSearchParams(
-                searchParams,
-              );
-
-              if (value.trim()) {
-                nextParams.set("q", value);
-              } else {
-                nextParams.delete("q");
-              }
-
-              setSearchParams(nextParams);
-            }}
+            onChange={handleQueryChange}
             placeholder="Search Crime No, Case No, accused, offence..."
             className="rounded-xl border border-slate-700 bg-[#061124] px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
           />
@@ -234,17 +264,17 @@ function CaseSearch() {
             onChange={(event) =>
               setDistrict(event.target.value)
             }
-            disabled={districtsLoading}
-            className="rounded-xl border border-slate-700 bg-[#061124] px-4 py-3 text-sm text-white disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-xl border border-slate-700 bg-[#061124] px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
           >
             <option value="All">
-              {districtsLoading
-                ? "Loading districts..."
-                : "All"}
+              All districts
             </option>
 
             {districts.map((item) => (
-              <option key={item} value={item}>
+              <option
+                key={item}
+                value={item}
+              >
                 {item}
               </option>
             ))}
@@ -255,23 +285,22 @@ function CaseSearch() {
             onChange={(event) =>
               setStatus(event.target.value)
             }
-            className="rounded-xl border border-slate-700 bg-[#061124] px-4 py-3 text-sm text-white"
+            className="rounded-xl border border-slate-700 bg-[#061124] px-4 py-3 text-sm text-white outline-none focus:border-blue-500"
           >
-            <option value="All">All</option>
+            <option value="All">
+              All statuses
+            </option>
 
             {statuses.map((item) => (
-              <option key={item} value={item}>
+              <option
+                key={item}
+                value={item}
+              >
                 {item}
               </option>
             ))}
           </select>
         </div>
-
-        {error && (
-          <div className="mt-5 rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-300">
-            {error}
-          </div>
-        )}
 
         <div className="mt-5 overflow-x-auto rounded-2xl border border-slate-700">
           <table className="min-w-full text-sm">
@@ -301,16 +330,17 @@ function CaseSearch() {
                 <tr>
                   <td
                     colSpan={7}
-                    className="px-4 py-12 text-center text-slate-400"
+                    className="h-40 px-4 py-8 text-center text-slate-400"
                   >
-                    Searching case records...
+                    Loading FIR records from
+                    the dataset...
                   </td>
                 </tr>
               ) : results.length === 0 ? (
                 <tr>
                   <td
                     colSpan={7}
-                    className="px-4 py-12 text-center text-slate-400"
+                    className="h-40 px-4 py-8 text-center text-slate-400"
                   >
                     No case records found.
                   </td>
@@ -321,11 +351,11 @@ function CaseSearch() {
                     key={crime.id}
                     className="hover:bg-[#0b1930]"
                   >
-                    <td className="px-4 py-4 font-medium text-blue-400">
+                    <td className="whitespace-nowrap px-4 py-4 font-medium text-blue-400">
                       {crime.caseNo}
                     </td>
 
-                    <td className="px-4 py-4 text-slate-300">
+                    <td className="whitespace-nowrap px-4 py-4 text-slate-300">
                       {formatDate(crime.date)}
                     </td>
 
@@ -338,7 +368,7 @@ function CaseSearch() {
                     </td>
 
                     <td className="px-4 py-4 text-slate-300">
-                      {crime.crimeSubHead}
+                      {crime.crime}
                     </td>
 
                     <td className="px-4 py-4 text-slate-300">
@@ -347,11 +377,10 @@ function CaseSearch() {
 
                     <td className="px-4 py-4">
                       <span
-                        className={`rounded-full px-3 py-1 text-xs ${
-                          isHighGravity(crime.gravity)
-                            ? "bg-red-500/15 text-red-400"
-                            : "bg-amber-500/15 text-amber-400"
-                        }`}
+                        className={`rounded-full px-3 py-1 text-xs font-medium ${getGravityClass(
+                          crime.gravityId,
+                          crime.gravity,
+                        )}`}
                       >
                         {crime.gravity}
                       </span>
@@ -362,9 +391,202 @@ function CaseSearch() {
             </tbody>
           </table>
         </div>
+
+        {!loading &&
+          results.length > 0 && (
+            <div className="mt-4 rounded-xl border border-blue-500/20 bg-blue-500/5 px-4 py-3">
+              <p className="text-xs leading-5 text-slate-400">
+                Showing{" "}
+                {results.length.toLocaleString(
+                  "en-IN",
+                )}{" "}
+                matching FIR records from the
+                loaded synthetic dataset.
+                District, police station, crime,
+                status and gravity values are
+                resolved from their corresponding
+                master tables.
+              </p>
+            </div>
+          )}
       </main>
     </div>
   );
+}
+
+function normalizeCases(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.map((crime, index) => ({
+    id: String(
+      crime.caseId ??
+        crime.CaseMasterID ??
+        crime.id ??
+        `case-${index}`,
+    ),
+
+    crimeNo:
+      crime.crimeNo ??
+      crime.CrimeNo ??
+      "Not available",
+
+    caseNo:
+      crime.caseNo ??
+      crime.CaseNo ??
+      crime.crimeNo ??
+      crime.CrimeNo ??
+      "Not available",
+
+    date:
+      crime.date ??
+      crime.CrimeRegisteredDate ??
+      crime.registrationDate ??
+      null,
+
+    district:
+      crime.districtName ??
+      crime.DistrictName ??
+      crime.district ??
+      "Unknown",
+
+    policeStation:
+      crime.policeStationName ??
+      crime.UnitName ??
+      crime.policeStation ??
+      "Unknown",
+
+    crime:
+      crime.crimeSubHeadName ??
+      crime.CrimeSubHeadName ??
+      crime.crimeHeadName ??
+      crime.CrimeGroupName ??
+      crime.crime ??
+      "Unknown",
+
+    status:
+      crime.statusName ??
+      crime.CaseStatusName ??
+      crime.status ??
+      "Unknown",
+
+    gravity:
+      crime.gravityName ??
+      crime.GravityName ??
+      crime.LookupValue ??
+      crime.gravity ??
+      "Unknown",
+
+    gravityId:
+      crime.gravityOffenceId ??
+      crime.GravityOffenceID ??
+      null,
+  }));
+}
+
+function normalizeDistricts(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      value
+        .map(
+          (district) =>
+            district.DistrictName ??
+            district.districtName ??
+            district.name ??
+            "",
+        )
+        .map((name) =>
+          String(name).trim(),
+        )
+        .filter(Boolean),
+    ),
+  ].sort((first, second) =>
+    first.localeCompare(second),
+  );
+}
+
+function normalizeStatuses(value) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return [
+    ...new Set(
+      value
+        .map(
+          (item) =>
+            item.CaseStatusName ??
+            item.statusName ??
+            item.name ??
+            item.LookupValue ??
+            "",
+        )
+        .map((name) =>
+          String(name).trim(),
+        )
+        .filter(Boolean),
+    ),
+  ].sort((first, second) =>
+    first.localeCompare(second),
+  );
+}
+
+function formatDate(value) {
+  if (!value) {
+    return "Not available";
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return String(value);
+  }
+
+  return date.toLocaleDateString(
+    "en-IN",
+    {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    },
+  );
+}
+
+function getGravityClass(
+  gravityId,
+  gravityName,
+) {
+  if (
+    String(gravityId ?? "") === "1"
+  ) {
+    return "bg-red-500/15 text-red-400";
+  }
+
+  const normalized = String(
+    gravityName ?? "",
+  ).toLowerCase();
+
+  if (
+    normalized.includes("heinous") ||
+    normalized.includes("high") ||
+    normalized.includes("severe")
+  ) {
+    return "bg-red-500/15 text-red-400";
+  }
+
+  if (
+    normalized.includes("medium") ||
+    normalized.includes("moderate")
+  ) {
+    return "bg-amber-500/15 text-amber-400";
+  }
+
+  return "bg-blue-500/15 text-blue-400";
 }
 
 export default CaseSearch;
