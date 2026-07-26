@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import {
   Bar,
@@ -42,6 +43,8 @@ const CHART_COLORS = [
 ];
 
 function Dashboard() {
+  const navigate = useNavigate();
+
   const {
     data: dashboardResponse,
     loading: dashboardLoading,
@@ -82,26 +85,25 @@ function Dashboard() {
     totalCases,
   );
 
-
   const [tourOpen, setTourOpen] =
-  useState(false);
+    useState(false);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[#020817]">
       <div data-tour="dashboard-header">
         <PageHeader
-        icon={Activity}
-        title="Crime Intelligence Dashboard"
-        description="Historical and operational insights from Karnataka FIR records"
-        action={
-          <button
-            type="button"
-            onClick={() => setTourOpen(true)}
-           className="rounded-xl bg-blue-600 px-5 py-3 font-medium text-white transition hover:bg-blue-500"
-          >
-           Take a tour
-          </button>
-        }
+          icon={Activity}
+          title="Crime Intelligence Dashboard"
+          description="Historical and operational insights from Karnataka FIR records"
+          action={
+            <button
+              type="button"
+              onClick={() => setTourOpen(true)}
+              className="rounded-xl bg-blue-600 px-5 py-3 font-medium text-white transition hover:bg-blue-500"
+            >
+              Take a tour
+            </button>
+          }
         />
       </div>
 
@@ -125,6 +127,9 @@ function Dashboard() {
             }
             description="Across the selected period"
             linkText="Live dataset ↗"
+            onLinkClick={() =>
+              navigate("/resources")
+            }
             icon={FileText}
           />
 
@@ -133,7 +138,9 @@ function Dashboard() {
             value={
               loading
                 ? "..."
-                : formatNumber(activeInvestigations)
+                : formatNumber(
+                    activeInvestigations,
+                  )
             }
             description={
               loading
@@ -141,6 +148,11 @@ function Dashboard() {
                 : `${activePercentage}% of total cases`
             }
             linkText="Investigation records ↗"
+            onLinkClick={() =>
+              navigate(
+                "/cases?status=Under%20Investigation",
+              )
+            }
             icon={Activity}
           />
 
@@ -149,7 +161,9 @@ function Dashboard() {
             value={
               loading
                 ? "..."
-                : formatNumber(heinousOffences)
+                : formatNumber(
+                    heinousOffences,
+                  )
             }
             description={
               loading
@@ -157,6 +171,11 @@ function Dashboard() {
                 : `${heinousPercentage}% of total cases`
             }
             linkText="High severity cases ↗"
+            onLinkClick={() =>
+              navigate(
+                "/cases?gravity=High",
+              )
+            }
             icon={AlertTriangle}
           />
 
@@ -175,6 +194,9 @@ function Dashboard() {
                   )} registered cases`
             }
             linkText="View map ↗"
+            onLinkClick={() =>
+              navigate("/hotspots")
+            }
             icon={MapPin}
           />
         </div>
@@ -186,7 +208,8 @@ function Dashboard() {
           >
             {loading ? (
               <ChartLoading />
-            ) : categoryDistribution.length === 0 ? (
+            ) : categoryDistribution.length ===
+              0 ? (
               <NoChartData />
             ) : (
               <div className="rounded-xl border border-slate-800 bg-[#081329] p-3">
@@ -196,7 +219,9 @@ function Dashboard() {
                 >
                   <PieChart>
                     <Pie
-                      data={categoryDistribution}
+                      data={
+                        categoryDistribution
+                      }
                       dataKey="value"
                       nameKey="name"
                       innerRadius={55}
@@ -222,8 +247,10 @@ function Dashboard() {
 
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: "#071225",
-                        border: "1px solid #334155",
+                        backgroundColor:
+                          "#071225",
+                        border:
+                          "1px solid #334155",
                         borderRadius: "12px",
                         color: "#ffffff",
                       }}
@@ -253,7 +280,8 @@ function Dashboard() {
           >
             {loading ? (
               <ChartLoading />
-            ) : statusDistribution.length === 0 ? (
+            ) : statusDistribution.length ===
+              0 ? (
               <NoChartData />
             ) : (
               <div className="rounded-xl border border-slate-800 bg-[#081329] p-3">
@@ -295,11 +323,14 @@ function Dashboard() {
 
                     <Tooltip
                       cursor={{
-                        fill: "rgba(59, 130, 246, 0.05)",
+                        fill:
+                          "rgba(59, 130, 246, 0.05)",
                       }}
                       contentStyle={{
-                        backgroundColor: "#071225",
-                        border: "1px solid #334155",
+                        backgroundColor:
+                          "#071225",
+                        border:
+                          "1px solid #334155",
                         borderRadius: "12px",
                         color: "#ffffff",
                       }}
@@ -328,7 +359,8 @@ function Dashboard() {
           >
             {loading ? (
               <ChartLoading height="h-[310px]" />
-            ) : monthlyTrend.length === 0 ? (
+            ) : monthlyTrend.length ===
+              0 ? (
               <NoChartData height="h-[310px]" />
             ) : (
               <div className="rounded-xl border border-slate-800 bg-[#081329] p-3">
@@ -368,8 +400,10 @@ function Dashboard() {
 
                     <Tooltip
                       contentStyle={{
-                        backgroundColor: "#071225",
-                        border: "1px solid #334155",
+                        backgroundColor:
+                          "#071225",
+                        border:
+                          "1px solid #334155",
                         borderRadius: "12px",
                         color: "#ffffff",
                       }}
@@ -412,7 +446,9 @@ function Dashboard() {
 
       <DashboardTour
         open={tourOpen}
-        onClose={() => setTourOpen(false)}
+        onClose={() =>
+          setTourOpen(false)
+        }
       />
     </div>
   );
@@ -469,16 +505,20 @@ function normalizeDashboardData(
     districtRows.length > 0
       ? [...districtRows].sort(
           (first, second) =>
-            getCount(second) - getCount(first),
+            getCount(second) -
+            getCount(first),
         )[0]
       : null;
 
   const highestCaseVolume = {
     district:
       kpis.highestCaseVolume?.district ??
-      kpis.highestCaseVolume?.districtName ??
-      dashboard.highestCaseVolume?.district ??
-      dashboard.highestCaseVolume?.districtName ??
+      kpis.highestCaseVolume
+        ?.districtName ??
+      dashboard.highestCaseVolume
+        ?.district ??
+      dashboard.highestCaseVolume
+        ?.districtName ??
       highestDistrictRow?.district ??
       highestDistrictRow?.districtName ??
       highestDistrictRow?.name ??
@@ -486,7 +526,8 @@ function normalizeDashboardData(
 
     count: toNumber(
       kpis.highestCaseVolume?.count ??
-        dashboard.highestCaseVolume?.count ??
+        dashboard.highestCaseVolume
+          ?.count ??
         getCount(highestDistrictRow),
     ),
   };
@@ -500,42 +541,49 @@ function normalizeDashboardData(
       trendData.categoryDistribution,
   );
 
-  const categoryDistribution = categorySource
-    .map((item) => ({
-      name:
-        item.name ??
-        item.crimeGroupName ??
-        item.crimeHeadName ??
-        item.category ??
-        item.label ??
-        "Unknown",
+  const categoryDistribution =
+    categorySource
+      .map((item) => ({
+        name:
+          item.name ??
+          item.crimeGroupName ??
+          item.crimeHeadName ??
+          item.category ??
+          item.label ??
+          "Unknown",
 
-      value: getCount(item),
-    }))
-    .filter((item) => item.value > 0);
+        value: getCount(item),
+      }))
+      .filter(
+        (item) => item.value > 0,
+      );
 
   const statusSource = normalizeArray(
     dashboard.statusDistribution ??
       dashboard.casesByStatus ??
-      dashboard.offenceSeverityDistribution ??
+      dashboard
+        .offenceSeverityDistribution ??
       dashboard.caseStatusDistribution ??
       trendData.statusDistribution ??
       trendData.casesByStatus,
   );
 
-  const statusDistribution = statusSource
-    .map((item) => ({
-      name:
-        item.name ??
-        item.statusName ??
-        item.gravityName ??
-        item.status ??
-        item.label ??
-        "Unknown",
+  const statusDistribution =
+    statusSource
+      .map((item) => ({
+        name:
+          item.name ??
+          item.statusName ??
+          item.gravityName ??
+          item.status ??
+          item.label ??
+          "Unknown",
 
-      value: getCount(item),
-    }))
-    .filter((item) => item.value > 0);
+        value: getCount(item),
+      }))
+      .filter(
+        (item) => item.value > 0,
+      );
 
   const monthlySource = normalizeArray(
     dashboard.monthlyTrend ??
@@ -563,7 +611,9 @@ function normalizeDashboardData(
           item.totalCases,
       ),
     }))
-    .filter((item) => item.cases >= 0);
+    .filter(
+      (item) => item.cases >= 0,
+    );
 
   return {
     totalCases,
@@ -577,7 +627,9 @@ function normalizeDashboardData(
 }
 
 function normalizeArray(value) {
-  return Array.isArray(value) ? value : [];
+  return Array.isArray(value)
+    ? value
+    : [];
 }
 
 function getCount(item) {
@@ -598,19 +650,29 @@ function getCount(item) {
 function toNumber(value) {
   const number = Number(value);
 
-  return Number.isFinite(number) ? number : 0;
+  return Number.isFinite(number)
+    ? number
+    : 0;
 }
 
-function calculatePercentage(value, total) {
+function calculatePercentage(
+  value,
+  total,
+) {
   if (!total) {
     return "0.0";
   }
 
-  return ((value / total) * 100).toFixed(1);
+  return (
+    (value / total) *
+    100
+  ).toFixed(1);
 }
 
 function formatNumber(value) {
-  return toNumber(value).toLocaleString("en-IN");
+  return toNumber(
+    value,
+  ).toLocaleString("en-IN");
 }
 
 function MetricCard({
@@ -618,6 +680,7 @@ function MetricCard({
   value,
   description,
   linkText,
+  onLinkClick,
   icon: Icon,
 }) {
   return (
@@ -642,9 +705,13 @@ function MetricCard({
         </div>
       </div>
 
-      <p className="mt-5 text-xs font-semibold text-blue-400">
+      <button
+        type="button"
+        onClick={onLinkClick}
+        className="mt-5 text-xs font-semibold text-blue-400 transition hover:text-blue-300"
+      >
         {linkText}
-      </p>
+      </button>
     </article>
   );
 }
@@ -668,7 +735,9 @@ function DashboardPanel({
   );
 }
 
-function ChartLoading({ height = "h-[270px]" }) {
+function ChartLoading({
+  height = "h-[270px]",
+}) {
   return (
     <div
       className={`flex ${height} items-center justify-center rounded-xl border border-slate-800 bg-[#081329]`}
@@ -680,7 +749,9 @@ function ChartLoading({ height = "h-[270px]" }) {
   );
 }
 
-function NoChartData({ height = "h-[270px]" }) {
+function NoChartData({
+  height = "h-[270px]",
+}) {
   return (
     <div
       className={`flex ${height} items-center justify-center rounded-xl border border-slate-800 bg-[#081329]`}
