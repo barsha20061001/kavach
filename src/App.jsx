@@ -1,5 +1,10 @@
-import { Navigate, Route, Routes } from "react-router-dom";
+import {
+  Navigate,
+  Route,
+  Routes,
+} from "react-router-dom";
 
+import ProtectedRoute from "./auth/ProtectedRoute";
 import DashboardLayout from "./layouts/DashboardLayout";
 
 import AIChatbot from "./pages/AIChatbot";
@@ -11,7 +16,9 @@ import CriminalNetwork from "./pages/CriminalNetwork";
 import Dashboard from "./pages/Dashboard";
 import DistrictAnalysis from "./pages/DistrictAnalysis";
 import HotspotMap from "./pages/HotspotMap";
+import Login from "./pages/Login";
 import Predictions from "./pages/Predictions";
+import Profile from "./pages/Profile";
 import RepeatOffenders from "./pages/RepeatOffenders";
 import Reports from "./pages/Reports";
 import Resources from "./pages/Resources";
@@ -20,8 +27,27 @@ import Settings from "./pages/Settings";
 export default function App() {
   return (
     <Routes>
-      <Route element={<DashboardLayout />}>
-        <Route index element={<Dashboard />} />
+      <Route
+        path="/login"
+        element={<Login />}
+      />
+
+      <Route
+        element={
+          <ProtectedRoute>
+            <DashboardLayout />
+          </ProtectedRoute>
+        }
+      >
+        <Route
+          index
+          element={
+            <Navigate
+              to="/dashboard"
+              replace
+            />
+          }
+        />
 
         <Route
           path="dashboard"
@@ -35,7 +61,12 @@ export default function App() {
 
         <Route
           path="ai-assistant"
-          element={<AIChatbot />}
+          element={
+            <Navigate
+              to="/assistant"
+              replace
+            />
+          }
         />
 
         <Route
@@ -45,7 +76,12 @@ export default function App() {
 
         <Route
           path="hotspot-map"
-          element={<HotspotMap />}
+          element={
+            <Navigate
+              to="/hotspots"
+              replace
+            />
+          }
         />
 
         <Route
@@ -55,7 +91,12 @@ export default function App() {
 
         <Route
           path="crime-trends"
-          element={<CrimeTrends />}
+          element={
+            <Navigate
+              to="/trends"
+              replace
+            />
+          }
         />
 
         <Route
@@ -65,7 +106,12 @@ export default function App() {
 
         <Route
           path="criminal-network"
-          element={<CriminalNetwork />}
+          element={
+            <Navigate
+              to="/network"
+              replace
+            />
+          }
         />
 
         <Route
@@ -75,7 +121,12 @@ export default function App() {
 
         <Route
           path="repeat-offenders"
-          element={<RepeatOffenders />}
+          element={
+            <Navigate
+              to="/repeat-records"
+              replace
+            />
+          }
         />
 
         <Route
@@ -85,7 +136,12 @@ export default function App() {
 
         <Route
           path="predictive-intelligence"
-          element={<Predictions />}
+          element={
+            <Navigate
+              to="/predictions"
+              replace
+            />
+          }
         />
 
         <Route
@@ -95,7 +151,12 @@ export default function App() {
 
         <Route
           path="case-search"
-          element={<CaseSearch />}
+          element={
+            <Navigate
+              to="/cases"
+              replace
+            />
+          }
         />
 
         <Route
@@ -105,7 +166,12 @@ export default function App() {
 
         <Route
           path="district-analysis"
-          element={<DistrictAnalysis />}
+          element={
+            <Navigate
+              to="/districts"
+              replace
+            />
+          }
         />
 
         <Route
@@ -125,7 +191,12 @@ export default function App() {
 
         <Route
           path="audit-logs"
-          element={<AuditLogs />}
+          element={
+            <Navigate
+              to="/audit"
+              replace
+            />
+          }
         />
 
         <Route
@@ -139,8 +210,18 @@ export default function App() {
         />
 
         <Route
+          path="profile"
+          element={<Profile />}
+        />
+
+        <Route
           path="*"
-          element={<Navigate to="/" replace />}
+          element={
+            <Navigate
+              to="/dashboard"
+              replace
+            />
+          }
         />
       </Route>
     </Routes>

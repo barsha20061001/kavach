@@ -20,6 +20,7 @@ import {
 
 import { useNavigate } from "react-router-dom";
 import { api } from "../../services/api";
+import { useAuth } from "../../context/AuthContext";
 
 const dateOptions = [
   {
@@ -120,6 +121,7 @@ export default function Topbar({
   onOpenMobileSidebar,
 }) {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const topbarRef = useRef(null);
 
   const [searchText, setSearchText] = useState("");
@@ -502,10 +504,11 @@ export default function Topbar({
   };
 
   const handleLogout = () => {
-    localStorage.removeItem("kavach-user");
-    localStorage.removeItem("kavach-token");
-
-    navigate("/login");
+    logout();
+    setOpenMenu(null);
+    navigate("/login", {
+      replace: true,
+    });
   };
 
   return (
@@ -858,18 +861,18 @@ export default function Topbar({
               className="ml-1 flex size-10 items-center justify-center rounded-xl bg-blue-600 font-semibold text-white hover:bg-blue-500"
               aria-label="Open user profile"
             >
-              KP
+              {user?.initials || "KP"}
             </button>
 
             {openMenu === "profile" && (
               <Dropdown className="right-0 w-64">
                 <div className="border-b border-slate-800 px-4 py-4">
                   <p className="font-semibold text-white">
-                    Karnataka Police
+                    {user?.name || "Karnataka Police"}
                   </p>
 
                   <p className="mt-1 text-xs text-slate-500">
-                    Crime Intelligence Analyst
+                    {user?.role || "Crime Intelligence Analyst"}
                   </p>
                 </div>
 
@@ -879,7 +882,7 @@ export default function Topbar({
                     label="View profile"
                     onClick={() => {
                       setOpenMenu(null);
-                      navigate("/settings");
+                      navigate("/profile");
                     }}
                   />
 
