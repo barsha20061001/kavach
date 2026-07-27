@@ -311,8 +311,6 @@ flowchart TB
 # Project Structure
 
 ```
-
-```text
 kavach/
 ├── backend/                         Express.js backend and analytics API
 │   ├── data/                        Karnataka FIR CSV datasets
@@ -388,7 +386,6 @@ kavach/
 ├── README.md                        Project documentation
 ├── vercel.json                      Vercel SPA routing configuration
 └── vite.config.js                   Vite build and development configuration
-```
 ```
 
 ---
