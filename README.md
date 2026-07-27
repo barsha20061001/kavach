@@ -430,7 +430,7 @@ Potential future improvements include:
 
 Developed as part of the **Karnataka State Police Datathon 2026**.
 
-~ **Barsha***
+~ **Barsha**
 
 ---
 
