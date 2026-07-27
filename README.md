@@ -312,7 +312,7 @@ No manual preprocessing is required.
 Clone the repository
 
 ```bash
-git clone https://github.com/barsha20061001/kavach.git
+git clone https://github.com/barsha20061001/kavach
 cd kavach
 ```
 
@@ -371,7 +371,7 @@ VITE_API_BASE_URL=http://localhost:5000
 Production
 
 ```
-VITE_API_BASE_URL=https://your-render-url.onrender.com
+VITE_API_BASE_URL=https://kavach-ai-api.onrender.com
 ```
 
 ---
@@ -430,7 +430,7 @@ Potential future improvements include:
 
 Developed as part of the **Karnataka State Police Datathon 2026**.
 
-Team: **Kavach AI**
+~ **Barsha***
 
 ---
 
