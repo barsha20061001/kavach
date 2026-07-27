@@ -64,6 +64,173 @@ The primary objectives of Kavach AI are:
 
 ---
 
+
+# Platform Previews
+
+## Core Intelligence Dashboard
+
+<table>
+<tr>
+<td align="center" width="50%">
+
+### Crime Intelligence Dashboard
+
+<img width="1917" height="912" alt="image" src="https://github.com/user-attachments/assets/f75613f7-caa6-4fed-8cc9-8bc384d10658" />
+
+
+</td>
+
+<td align="center" width="50%">
+
+### AI Crime Assistant
+
+<img width="1917" height="902" alt="image" src="https://github.com/user-attachments/assets/46d8e0a6-b9d6-4c9e-ac57-f58421ad5d9b" />
+
+
+</td>
+</tr>
+
+<tr>
+<td align="center">
+
+### Crime Hotspot Map
+
+<img width="1917" height="911" alt="image" src="https://github.com/user-attachments/assets/d4aa798e-f06c-4f09-8670-750e499e99f3" />
+
+
+</td>
+
+<td align="center">
+
+### Crime Trends
+
+<img width="1917" height="907" alt="image" src="https://github.com/user-attachments/assets/b7752c6a-daa2-4330-965a-ab649419a478" />
+
+
+</td>
+</tr>
+</table>
+
+---
+
+## Investigation Intelligence
+
+<table>
+<tr>
+<td align="center" width="50%">
+
+### Criminal Network Analysis
+
+<img width="1917" height="922" alt="image" src="https://github.com/user-attachments/assets/3a82b84f-8365-4b63-b11d-3047fbf793ad" />
+
+
+</td>
+
+<td align="center" width="50%">
+
+### Repeat Offender Detection
+
+<img width="1917" height="907" alt="image" src="https://github.com/user-attachments/assets/c8530110-f678-4aa3-92be-25a768b9cfbb" />
+
+
+</td>
+</tr>
+
+<tr>
+<td align="center">
+
+### Predictive Intelligence
+
+<img width="1917" height="905" alt="image" src="https://github.com/user-attachments/assets/a3d8a89b-04c6-4993-a012-02599559ef0f" />
+
+
+</td>
+
+<td align="center">
+
+### District Analysis
+
+<img width="1917" height="900" alt="image" src="https://github.com/user-attachments/assets/440ac64b-3af8-47d3-895c-8555b18ebb8b" />
+
+
+</td>
+</tr>
+</table>
+
+---
+
+## Operational Intelligence
+
+<table>
+<tr>
+<td align="center" width="50%">
+
+### Case Search
+
+<img width="1917" height="912" alt="image" src="https://github.com/user-attachments/assets/5c4511ad-a9f9-43fa-a8c6-daaa2ab5151b" />
+
+
+</td>
+
+<td align="center" width="50%">
+
+### Alerts & Notifications
+
+<img width="1897" height="906" alt="image" src="https://github.com/user-attachments/assets/f181d90e-46b0-44d8-91b0-e4f6a4a891e3" />
+
+
+</td>
+</tr>
+
+<tr>
+<td align="center">
+
+### Report Generation
+
+<img width="1917" height="916" alt="image" src="https://github.com/user-attachments/assets/3a7a3758-8a6b-4c97-b36a-bbac24d18112" />
+
+
+</td>
+
+<td align="center">
+
+### Dataset Resource Explorer
+
+<img width="1917" height="911" alt="image" src="https://github.com/user-attachments/assets/59195811-edc6-4353-9f76-f31d1d3a1e38" />
+
+
+</td>
+</tr>
+</table>
+
+---
+
+## User Experience
+
+<table>
+<tr>
+<td align="center" width="50%">
+
+### User Profile & Settings
+
+<img width="1917" height="911" alt="image" src="https://github.com/user-attachments/assets/927db8b6-52d2-4546-bb9b-31875f87ee01" />
+
+
+</td>
+
+<td align="center" width="50%">
+
+### Authentication
+
+<img width="1917" height="961" alt="image" src="https://github.com/user-attachments/assets/869e6231-bf72-44b6-aec9-764268c45569" />
+
+
+</td>
+</tr>
+</table>
+
+---
+
 # Key Features
 
 ## Crime Intelligence Dashboard
