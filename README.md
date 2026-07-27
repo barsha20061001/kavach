@@ -6,7 +6,8 @@ Kavach AI is an intelligent crime analytics platform developed for the **Karnata
 
 Rather than functioning as a traditional record management system, Kavach AI focuses on assisting investigators and decision-makers by extracting operational insights from historical FIR data. The application processes structured CSV datasets to generate district-level intelligence, identify crime trends, detect repeat offenders, forecast crime patterns, and support evidence-driven policing.
 
-**Live Deployed Prototype:** 
+**Live Deployed Prototype:** [https://kavach-snowy.vercel.app](https://kavach-snowy.vercel.app)
+
 
 ---
 
