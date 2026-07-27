@@ -188,22 +188,89 @@ Interactive dataset explorer displaying:
 
 ---
 
-# System Architecture
+## System Architecture
 
-```
-                    React + Vite Frontend
-                            │
-                            │ REST API
-                            ▼
-                     Express.js Backend
-                            │
-                            ▼
-                  CSV Analytics Engine
-                            │
-                            ▼
-                Karnataka FIR CSV Dataset
-```
+```mermaid
+flowchart TB
+    User[Police Officer / Analyst]
 
+    subgraph Frontend["Frontend Layer - Vercel"]
+        UI[React + Vite Application]
+        Router[React Router]
+        Visuals[Recharts, Leaflet, Cytoscape]
+        Auth[Authentication and Protected Routes]
+        ClientState[Settings, Alerts and Audit State]
+        APIClient[Centralised API Service]
+    end
+
+    subgraph Backend["Application Layer - Render"]
+        Express[Express.js REST API]
+        Middleware[CORS, JSON Parsing and Request Handling]
+
+        subgraph Services["Analytics Services"]
+            DashboardService[Dashboard Analytics]
+            TrendService[Crime Trend Analysis]
+            HotspotService[Hotspot Intelligence]
+            NetworkService[Criminal Network Analysis]
+            OffenderService[Repeat Offender Detection]
+            PredictiveService[Predictive Intelligence]
+            DistrictService[District Analytics]
+            SearchService[FIR Search]
+            ReportService[Report Generation]
+            AssistantService[AI Crime Assistant]
+        end
+    end
+
+    subgraph Data["Data Layer"]
+        CSVEngine[CSV Processing and Aggregation Engine]
+        FIRData[(Karnataka FIR Dataset<br/>29 CSV Files)]
+    end
+
+    subgraph External["Deployment and Source Control"]
+        GitHub[GitHub Repository]
+        Vercel[Vercel Deployment]
+        Render[Render Deployment]
+    end
+
+    User --> UI
+    UI --> Router
+    UI --> Visuals
+    UI --> Auth
+    UI --> ClientState
+    UI --> APIClient
+
+    APIClient -->|HTTPS REST Requests| Express
+    Express --> Middleware
+
+    Middleware --> DashboardService
+    Middleware --> TrendService
+    Middleware --> HotspotService
+    Middleware --> NetworkService
+    Middleware --> OffenderService
+    Middleware --> PredictiveService
+    Middleware --> DistrictService
+    Middleware --> SearchService
+    Middleware --> ReportService
+    Middleware --> AssistantService
+
+    DashboardService --> CSVEngine
+    TrendService --> CSVEngine
+    HotspotService --> CSVEngine
+    NetworkService --> CSVEngine
+    OffenderService --> CSVEngine
+    PredictiveService --> CSVEngine
+    DistrictService --> CSVEngine
+    SearchService --> CSVEngine
+    ReportService --> CSVEngine
+    AssistantService --> CSVEngine
+
+    CSVEngine --> FIRData
+
+    GitHub -->|Automatic Deployment| Vercel
+    GitHub -->|Automatic Deployment| Render
+    Vercel --> Frontend
+    Render --> Backend
+```
 ---
 
 # Technology Stack
