@@ -311,29 +311,84 @@ flowchart TB
 # Project Structure
 
 ```
-kavach
+
+```text
+kavach/
+├── backend/                         Express.js backend and analytics API
+│   ├── data/                        Karnataka FIR CSV datasets
+│   ├── node_modules/                Backend dependencies
+│   ├── .env.example                 Backend environment variable template
+│   ├── package.json                 Backend dependencies and scripts
+│   ├── package-lock.json            Backend dependency lock file
+│   └── server.js                    REST API, CSV processing and analytics engine
 │
-├── backend
-│   ├── data
-│   ├── server.js
-│   ├── package.json
-│   └── ...
+├── functions/                       Catalyst function configuration
 │
-├── public
+├── public/                          Static frontend assets
 │
-├── src
-│   ├── components
-│   ├── context
-│   ├── hooks
-│   ├── layouts
-│   ├── pages
-│   ├── services
-│   ├── styles
-│   └── utils
+├── src/                             React application source
+│   ├── components/                  Reusable user interface components
+│   │   ├── DashboardTour.jsx        Interactive dashboard walkthrough
+│   │   ├── MetricCard.jsx           Dashboard KPI card component
+│   │   ├── ProtectedRoute.jsx       Authentication-based route protection
+│   │   ├── Sidebar.jsx              Main navigation sidebar
+│   │   └── Topbar.jsx               Search, settings and profile navigation
+│   │
+│   ├── context/                     Global React context providers
+│   │   └── AuthContext.jsx          Authentication state and session handling
+│   │
+│   ├── hooks/                       Reusable React hooks
+│   │   └── useApi.js                API request, loading and error-state management
+│   │
+│   ├── layouts/                     Shared application layouts
+│   │   └── DashboardLayout.jsx      Main authenticated dashboard layout
+│   │
+│   ├── pages/                       Application screens
+│   │   ├── AIAssistant.jsx          Dataset-grounded crime investigation assistant
+│   │   ├── Alerts.jsx               Operational and high-severity alerts
+│   │   ├── AuditLogs.jsx             Local application activity history
+│   │   ├── CaseSearch.jsx           FIR, accused and district search
+│   │   ├── CrimeTrends.jsx          Historical crime trend visualisation
+│   │   ├── CriminalNetwork.jsx      Criminal relationship network graph
+│   │   ├── Dashboard.jsx            Crime intelligence overview
+│   │   ├── DistrictAnalysis.jsx     District-wise case and resolution analytics
+│   │   ├── HotspotMap.jsx           Geospatial crime hotspot visualisation
+│   │   ├── Login.jsx                User authentication page
+│   │   ├── Predictions.jsx          Predictive crime intelligence
+│   │   ├── Profile.jsx              User profile information
+│   │   ├── RepeatOffenders.jsx      Repeat offender identification
+│   │   ├── Reports.jsx              Dataset report generation and export
+│   │   ├── Resources.jsx            Dataset schema and file explorer
+│   │   └── Settings.jsx             Application preferences and configuration
+│   │
+│   ├── routes/                      Route definitions and access configuration
+│   │
+│   ├── services/                    Frontend service layer
+│   │   └── api.js                   Centralised backend API client
+│   │
+│   ├── styles/                      Shared style definitions
+│   │
+│   ├── utils/                       Utility functions and local storage helpers
+│   │   ├── auditLogger.js           Client-side audit activity logger
+│   │   └── settings.js              Application settings persistence
+│   │
+│   ├── App.jsx                      Main route and application configuration
+│   ├── index.css                    Global styling
+│   └── main.jsx                     React application entry point
 │
-├── package.json
-├── vite.config.js
-└── README.md
+├── .catalystrc                      Catalyst project association
+├── .env.example                     Frontend environment variable template
+├── .gitignore                       Git exclusion rules
+├── app-config.json                  AppSail configuration
+├── catalyst.json                    Catalyst deployment configuration
+├── cli-config.json                  Catalyst CLI configuration
+├── index.html                       Vite HTML entry point
+├── package.json                     Frontend dependencies and scripts
+├── package-lock.json                Frontend dependency lock file
+├── README.md                        Project documentation
+├── vercel.json                      Vercel SPA routing configuration
+└── vite.config.js                   Vite build and development configuration
+```
 ```
 
 ---
