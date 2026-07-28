@@ -443,6 +443,33 @@ flowchart TB
 ```
 ---
 
+
+## Operational Data Flowchart
+
+```mermaid
+flowchart TD
+
+    A["Crime Incident / User Request"]
+        -->
+    B["Extract FIR Records<br/>Karnataka Crime Dataset"]
+        -->
+    C["Data Processing & Feature Extraction"]
+        -->
+    D["Crime Intelligence Engine"]
+
+    D --> E["Crime Hotspot Detection"]
+    D --> F["Crime Trend Analysis"]
+    D --> G["Repeat Offender Detection"]
+
+    E --> H["Generate Intelligence Report"]
+    F --> H
+    G --> H
+
+    H --> I["Interactive Dashboard & Maps"]
+```
+
+---
+
 # Technology Stack
 
 ## Frontend
