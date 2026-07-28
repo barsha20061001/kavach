@@ -836,6 +836,14 @@ app.get("/api/health", (req, res) => {
 });
 
 
+app.get("/api/health", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    message: "Kavach AI API is running",
+    timestamp: new Date().toISOString()
+  });
+});
+
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on ${PORT}`);
 });
