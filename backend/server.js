@@ -827,6 +827,15 @@ app.use((err, _req, res, _next) => {
   res.status(500).json({ message: "Internal server error", error: err.message });
 });
 
+app.get("/api/health", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    message: "Kavach AI API is running",
+    timestamp: new Date().toISOString()
+  });
+});
+
+
 app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on ${PORT}`);
 });
